@@ -7,7 +7,7 @@ export function initializeApp() {
     console.log('[Init] Initializing application...');
     
     // Initialize database
-    const db = getDatabase();
+    getDatabase();
     console.log('[Init] Database initialized successfully');
     
     // Check database health

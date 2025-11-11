@@ -95,7 +95,7 @@ export default function EmailConfigForm() {
       } else {
         showNotification(`Failed to save configuration: ${result.error}`, 'error');
       }
-    } catch (error) {
+    } catch {
       showNotification('Error saving configuration', 'error');
     } finally {
       setIsLoading(false);
@@ -200,7 +200,7 @@ export default function EmailConfigForm() {
         <ol className="list-decimal list-inside text-blue-700 space-y-1">
           <li>Enable 2-Factor Authentication on your Gmail account</li>
           <li>Go to Google Account Settings → Security → App passwords</li>
-          <li>Generate an "App password" for this application</li>
+          <li>Generate an &quot;App password&quot; for this application</li>
           <li>Use the app password (not your regular password) below</li>
         </ol>
       </div>

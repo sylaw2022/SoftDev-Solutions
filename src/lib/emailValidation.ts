@@ -45,7 +45,7 @@ export class EmailValidator {
         const mxResult = await resolveMx(domain);
         mxRecords = mxResult.map(record => record.exchange);
         console.log('[EmailValidator] MX records found:', mxRecords);
-      } catch (mxError) {
+      } catch {
         console.log('[EmailValidator] No MX records found, trying A/AAAA records');
       }
 
@@ -65,7 +65,7 @@ export class EmailValidator {
               }
             };
           }
-        } catch (aError) {
+        } catch {
           // Try AAAA
           try {
             const aaaaRecords = await resolve6(domain);
@@ -81,7 +81,7 @@ export class EmailValidator {
                 }
               };
             }
-          } catch (aaaaError) {
+          } catch {
             // No records found
           }
         }

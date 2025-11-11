@@ -4,7 +4,13 @@ interface ServerDebugInfo {
   timestamp: string;
   level: 'log' | 'warn' | 'error' | 'info';
   message: string;
-  data?: any;
+  data?: Record<string, unknown>;
+  endpoint?: string;
+  method?: string;
+  requestId?: string;
+}
+
+interface DebugContext {
   endpoint?: string;
   method?: string;
   requestId?: string;
@@ -24,11 +30,7 @@ class ServerDebugger {
     return ServerDebugger.instance;
   }
 
-  log(level: ServerDebugInfo['level'], message: string, data?: any, context?: {
-    endpoint?: string;
-    method?: string;
-    requestId?: string;
-  }) {
+  log(level: ServerDebugInfo['level'], message: string, data?: Record<string, unknown>, context?: DebugContext) {
     const debugInfo: ServerDebugInfo = {
       timestamp: new Date().toISOString(),
       level,
@@ -46,15 +48,15 @@ class ServerDebugger {
     console[level](`[ServerDebugger] ${message}`, data);
   }
 
-  info(message: string, data?: any, context?: any) {
+  info(message: string, data?: Record<string, unknown>, context?: DebugContext) {
     this.log('info', message, data, context);
   }
 
-  warn(message: string, data?: any, context?: any) {
+  warn(message: string, data?: Record<string, unknown>, context?: DebugContext) {
     this.log('warn', message, data, context);
   }
 
-  error(message: string, data?: any, context?: any) {
+  error(message: string, data?: Record<string, unknown>, context?: DebugContext) {
     this.log('error', message, data, context);
   }
 
@@ -87,10 +89,10 @@ export const serverDebugger = ServerDebugger.getInstance();
 
 // Helper function for API route debugging
 export function debugApiRoute(
-  handler: (request: NextRequest, context?: any) => Promise<NextResponse>,
+  handler: (request: NextRequest, context?: Record<string, unknown>) => Promise<NextResponse>,
   routeName?: string
 ) {
-  return async (request: NextRequest, context?: any) => {
+  return async (request: NextRequest, context?: Record<string, unknown>) => {
     const debugContext = serverDebugger.middleware(request);
     
     try {

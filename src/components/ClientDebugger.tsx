@@ -6,7 +6,7 @@ interface DebugInfo {
   timestamp: string;
   level: 'log' | 'warn' | 'error' | 'info';
   message: string;
-  data?: any;
+  data?: Record<string, unknown>;
   component?: string;
 }
 
@@ -28,7 +28,7 @@ export default function ClientDebugger({
   const [filter, setFilter] = useState<string>('');
 
   // Debug logging function
-  const debugLog = useCallback((level: DebugInfo['level'], message: string, data?: any, component?: string) => {
+  const debugLog = useCallback((level: DebugInfo['level'], message: string, data?: Record<string, unknown>, component?: string) => {
     if (!enabled) return;
 
     const newLog: DebugInfo = {
@@ -49,12 +49,20 @@ export default function ClientDebugger({
   }, [enabled, maxLogs]);
 
   // Expose debug functions globally for easy access
+  interface WindowWithDebug extends Window {
+    debugLog?: (level: DebugInfo['level'], message: string, data?: Record<string, unknown>, component?: string) => void;
+    debugInfo?: (message: string, data?: Record<string, unknown>) => void;
+    debugWarn?: (message: string, data?: Record<string, unknown>) => void;
+    debugError?: (message: string, data?: Record<string, unknown>) => void;
+  }
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      (window as any).debugLog = debugLog;
-      (window as any).debugInfo = (message: string, data?: any) => debugLog('info', message, data);
-      (window as any).debugWarn = (message: string, data?: any) => debugLog('warn', message, data);
-      (window as any).debugError = (message: string, data?: any) => debugLog('error', message, data);
+      const win = window as WindowWithDebug;
+      win.debugLog = debugLog;
+      win.debugInfo = (message: string, data?: Record<string, unknown>) => debugLog('info', message, data);
+      win.debugWarn = (message: string, data?: Record<string, unknown>) => debugLog('warn', message, data);
+      win.debugError = (message: string, data?: Record<string, unknown>) => debugLog('error', message, data);
     }
   }, [debugLog]);
 

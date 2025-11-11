@@ -130,7 +130,7 @@ export class UserRepository {
   // Get all users
   getAllUsers(limit?: number, offset?: number): User[] {
     let query = 'SELECT * FROM users ORDER BY created_at DESC';
-    const params: any[] = [];
+    const params: (number | string)[] = [];
 
     if (limit) {
       query += ' LIMIT ?';
@@ -149,7 +149,7 @@ export class UserRepository {
   // Update user
   updateUser(id: number, userData: Partial<CreateUserData>): User | null {
     const fields: string[] = [];
-    const values: any[] = [];
+    const values: (string | number)[] = [];
 
     if (userData.firstName) {
       fields.push('first_name = ?');

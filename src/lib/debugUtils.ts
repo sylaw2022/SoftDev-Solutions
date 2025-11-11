@@ -13,27 +13,54 @@ export const clientDebugUtils = {
 
   // Memory usage (if available)
   getMemoryUsage: () => {
+    interface PerformanceMemory {
+      usedJSHeapSize: number;
+      totalJSHeapSize: number;
+      jsHeapSizeLimit: number;
+    }
+    
+    interface PerformanceWithMemory extends Performance {
+      memory?: PerformanceMemory;
+    }
+    
     if ('memory' in performance) {
-      const memory = (performance as any).memory;
-      return {
-        used: memory.usedJSHeapSize,
-        total: memory.totalJSHeapSize,
-        limit: memory.jsHeapSizeLimit
-      };
+      const perf = performance as PerformanceWithMemory;
+      const memory = perf.memory;
+      if (memory) {
+        return {
+          used: memory.usedJSHeapSize,
+          total: memory.totalJSHeapSize,
+          limit: memory.jsHeapSizeLimit
+        };
+      }
     }
     return null;
   },
 
   // Network monitoring
   monitorNetwork: () => {
+    interface NetworkInformation {
+      effectiveType?: string;
+      downlink?: number;
+      rtt?: number;
+      saveData?: boolean;
+    }
+    
+    interface NavigatorWithConnection extends Navigator {
+      connection?: NetworkInformation;
+    }
+    
     if ('connection' in navigator) {
-      const connection = (navigator as any).connection;
-      return {
-        effectiveType: connection.effectiveType,
-        downlink: connection.downlink,
-        rtt: connection.rtt,
-        saveData: connection.saveData
-      };
+      const nav = navigator as NavigatorWithConnection;
+      const connection = nav.connection;
+      if (connection) {
+        return {
+          effectiveType: connection.effectiveType,
+          downlink: connection.downlink,
+          rtt: connection.rtt,
+          saveData: connection.saveData
+        };
+      }
     }
     return null;
   },
@@ -112,7 +139,7 @@ export const serverDebugUtils = {
 // Common debug helpers
 export const debugHelpers = {
   // Safe JSON stringify with circular reference handling
-  safeStringify: (obj: any, space?: number) => {
+  safeStringify: (obj: unknown, space?: number) => {
     const seen = new WeakSet();
     return JSON.stringify(obj, (key, val) => {
       if (val != null && typeof val === 'object') {
@@ -128,22 +155,22 @@ export const debugHelpers = {
   // Deep clone for debugging
   deepClone: <T>(obj: T): T => {
     if (obj === null || typeof obj !== 'object') return obj;
-    if (obj instanceof Date) return new Date(obj.getTime()) as any;
-    if (obj instanceof Array) return obj.map(item => debugHelpers.deepClone(item)) as any;
+    if (obj instanceof Date) return new Date(obj.getTime()) as T;
+    if (obj instanceof Array) return obj.map(item => debugHelpers.deepClone(item)) as T;
     if (typeof obj === 'object') {
-      const clonedObj = {} as any;
+      const clonedObj = {} as Record<string, unknown>;
       for (const key in obj) {
-        if (obj.hasOwnProperty(key)) {
-          clonedObj[key] = debugHelpers.deepClone(obj[key]);
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+          clonedObj[key] = debugHelpers.deepClone((obj as Record<string, unknown>)[key]);
         }
       }
-      return clonedObj;
+      return clonedObj as T;
     }
     return obj;
   },
 
   // Type checking utilities
-  typeCheck: (value: any) => {
+  typeCheck: (value: unknown) => {
     if (value === null) return 'null';
     if (value === undefined) return 'undefined';
     if (Array.isArray(value)) return 'array';
@@ -152,11 +179,16 @@ export const debugHelpers = {
 
   // Error analysis
   analyzeError: (error: Error) => {
+    interface ErrorWithCause extends Error {
+      cause?: unknown;
+    }
+    
+    const errorWithCause = error as ErrorWithCause;
     return {
       name: error.name,
       message: error.message,
       stack: error.stack,
-      cause: (error as any).cause,
+      cause: errorWithCause.cause,
       timestamp: new Date().toISOString()
     };
   }

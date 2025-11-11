@@ -216,7 +216,7 @@ export default function Home() {
               Ready to Transform Your Business?
             </h2>
             <p className="text-xl text-cyan-50 mb-8 max-w-2xl mx-auto">
-              Let's discuss your project and create a custom solution that drives your business forward.
+              Let&apos;s discuss your project and create a custom solution that drives your business forward.
             </p>
             <Link
               href="/contact"

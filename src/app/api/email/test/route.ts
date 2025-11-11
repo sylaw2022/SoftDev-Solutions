@@ -71,6 +71,21 @@ export async function POST(request: NextRequest) {
 }
 
 // Get email service status
+interface EmailStatusResponse {
+  status: 'healthy' | 'error';
+  message: string;
+  mode: 'real' | 'test';
+  environment?: string;
+  timestamp: string;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpUser?: string;
+  smtpFrom?: string;
+  adminEmail?: string;
+  testMode?: boolean;
+  error?: string;
+}
+
 export async function GET() {
   try {
     const connectionTest = await emailService.testConnection();
@@ -80,9 +95,9 @@ export async function GET() {
                        process.env.SMTP_USER !== 'ethereal.user@ethereal.email' &&
                        process.env.SMTP_PASS !== 'ethereal.pass';
     
-    const response: any = {
+    const response: EmailStatusResponse = {
       status: connectionTest.success ? 'healthy' : 'error',
-      message: connectionTest.success ? 'Email service is working' : connectionTest.error,
+      message: connectionTest.success ? 'Email service is working' : (connectionTest.error || 'Unknown error'),
       mode: hasRealSMTP ? 'real' : 'test',
       environment: process.env.NODE_ENV,
       timestamp: new Date().toISOString()

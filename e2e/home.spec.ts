@@ -61,13 +61,7 @@ test.describe('Home Page', () => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('/');
     
-    // Check that mobile menu button is visible
-    const menuButton = page.locator('button').filter({ hasText: /menu/i }).or(
-      page.locator('button[aria-label*="menu" i]')
-    ).or(
-      page.locator('svg').filter({ has: page.locator('path[d*="M4 6h16M4 12h16M4 18h16"]') })
-    );
-    
+    // Check that mobile menu button is visible (if it exists)
     // Main content should still be visible
     await expect(page.getByRole('heading', { name: /transform your business/i })).toBeVisible();
   });

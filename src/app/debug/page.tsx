@@ -5,20 +5,57 @@ import ClientDebugger from '@/components/ClientDebugger';
 import EmailConfigForm from '@/components/EmailConfigForm';
 import { clientDebugUtils, debugHelpers } from '@/lib/debugUtils';
 
+interface ServerLog {
+  level: string;
+  message: string;
+  timestamp: string;
+  context?: Record<string, unknown>;
+}
+
+interface EnvironmentInfo {
+  nodeEnv?: string;
+  [key: string]: unknown;
+}
+
+interface PerformanceMetrics {
+  memoryUsage?: Record<string, unknown>;
+  networkInfo?: Record<string, unknown>;
+  localStorage?: Record<string, unknown>;
+  sessionStorage?: Record<string, unknown>;
+  cookies?: Record<string, unknown>;
+}
+
+interface DatabaseHealth {
+  status?: string;
+  [key: string]: unknown;
+}
+
+interface EmailStatus {
+  status?: string;
+  [key: string]: unknown;
+}
+
+interface WindowWithDebug extends Window {
+  debugInfo?: (message: string, data?: Record<string, unknown>) => void;
+  debugWarn?: (message: string, data?: Record<string, unknown>) => void;
+  debugError?: (message: string, data?: Record<string, unknown>) => void;
+}
+
 export default function DebugPage() {
-  const [serverLogs, setServerLogs] = useState<any[]>([]);
-  const [environmentInfo, setEnvironmentInfo] = useState<any>(null);
-  const [performanceMetrics, setPerformanceMetrics] = useState<any>(null);
-  const [databaseHealth, setDatabaseHealth] = useState<any>(null);
-  const [emailStatus, setEmailStatus] = useState<any>(null);
+  const [serverLogs, setServerLogs] = useState<ServerLog[]>([]);
+  const [environmentInfo, setEnvironmentInfo] = useState<EnvironmentInfo | null>(null);
+  const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics | null>(null);
+  const [databaseHealth, setDatabaseHealth] = useState<DatabaseHealth | null>(null);
+  const [emailStatus, setEmailStatus] = useState<EmailStatus | null>(null);
 
   // Test client-side debugging
   const testClientDebugging = () => {
     // Test different log levels
     if (typeof window !== 'undefined') {
-      (window as any).debugInfo('Testing info logging', { test: true });
-      (window as any).debugWarn('Testing warning logging', { warning: 'This is a test warning' });
-      (window as any).debugError('Testing error logging', { error: 'This is a test error' });
+      const win = window as WindowWithDebug;
+      win.debugInfo?.('Testing info logging', { test: true });
+      win.debugWarn?.('Testing warning logging', { warning: 'This is a test warning' });
+      win.debugError?.('Testing error logging', { error: 'This is a test error' });
     }
   };
 
@@ -26,14 +63,15 @@ export default function DebugPage() {
   const testPerformanceMonitoring = () => {
     const duration = clientDebugUtils.measurePerformance('Test Operation', () => {
       // Simulate some work
-      let sum = 0;
       for (let i = 0; i < 1000000; i++) {
-        sum += i;
+        // Performance test loop
+        void i;
       }
     });
     
     if (typeof window !== 'undefined') {
-      (window as any).debugInfo('Performance test completed', { duration });
+      const win = window as WindowWithDebug;
+      win.debugInfo?.('Performance test completed', { duration });
     }
   };
 
@@ -46,7 +84,8 @@ export default function DebugPage() {
     const cookies = clientDebugUtils.debugCookies();
 
     if (typeof window !== 'undefined') {
-      (window as any).debugInfo('System information gathered', {
+      const win = window as WindowWithDebug;
+      win.debugInfo?.('System information gathered', {
         memoryUsage,
         networkInfo,
         localStorage,
@@ -72,11 +111,13 @@ export default function DebugPage() {
       setServerLogs(data.serverLogs || []);
       
       if (typeof window !== 'undefined') {
-        (window as any).debugInfo('Server logs fetched', { count: data.serverLogs?.length || 0 });
+        const win = window as WindowWithDebug;
+        win.debugInfo?.('Server logs fetched', { count: data.serverLogs?.length || 0 });
       }
     } catch (error) {
       if (typeof window !== 'undefined') {
-        (window as any).debugError('Failed to fetch server logs', { error });
+        const win = window as WindowWithDebug;
+        win.debugError?.('Failed to fetch server logs', { error: error instanceof Error ? error.message : String(error) });
       }
     }
   };
@@ -105,11 +146,13 @@ export default function DebugPage() {
       const result = await response.json();
       
       if (typeof window !== 'undefined') {
-        (window as any).debugInfo('Server API test completed', { result });
+        const win = window as WindowWithDebug;
+        win.debugInfo?.('Server API test completed', { result });
       }
     } catch (error) {
       if (typeof window !== 'undefined') {
-        (window as any).debugError('Server API test failed', { error });
+        const win = window as WindowWithDebug;
+        win.debugError?.('Server API test failed', { error: error instanceof Error ? error.message : String(error) });
       }
     }
   };
@@ -133,7 +176,8 @@ export default function DebugPage() {
       setDatabaseHealth(data);
       
       if (typeof window !== 'undefined') {
-        (window as any).debugInfo?.('Database health retrieved', data);
+        const win = window as WindowWithDebug;
+        win.debugInfo?.('Database health retrieved', data);
       }
     } catch (error) {
       console.error('[DebugPage] Failed to get database health:', error);
@@ -149,7 +193,8 @@ export default function DebugPage() {
       setEmailStatus(data);
       
       if (typeof window !== 'undefined') {
-        (window as any).debugInfo?.('Email status retrieved', data);
+        const win = window as WindowWithDebug;
+        win.debugInfo?.('Email status retrieved', data);
       }
     } catch (error) {
       console.error('[DebugPage] Failed to get email status:', error);
@@ -177,11 +222,13 @@ export default function DebugPage() {
       const result = await response.json();
       
       if (typeof window !== 'undefined') {
-        (window as any).debugInfo?.('Email test completed', { result });
+        const win = window as WindowWithDebug;
+        win.debugInfo?.('Email test completed', { result });
       }
     } catch (error) {
       if (typeof window !== 'undefined') {
-        (window as any).debugError?.('Email test failed', { error });
+        const win = window as WindowWithDebug;
+        win.debugError?.('Email test failed', { error: error instanceof Error ? error.message : String(error) });
       }
     }
   };
@@ -189,7 +236,8 @@ export default function DebugPage() {
   useEffect(() => {
     // Initial debug log
     if (typeof window !== 'undefined') {
-      (window as any).debugInfo('Debug page loaded', {
+      const win = window as WindowWithDebug;
+      win.debugInfo?.('Debug page loaded', {
         url: window.location.href,
         timestamp: new Date().toISOString()
       });
@@ -250,7 +298,8 @@ export default function DebugPage() {
             <button
               onClick={() => {
                 if (typeof window !== 'undefined') {
-                  (window as any).debugInfo('Manual refresh triggered');
+                  const win = window as WindowWithDebug;
+                  win.debugInfo?.('Manual refresh triggered');
                 }
               }}
               className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors"
@@ -418,21 +467,21 @@ export default function DebugPage() {
           <div className="space-y-3 text-blue-700">
             <div>
               <h3 className="font-semibold">1. Client-Side Debugging:</h3>
-              <p>• Use the "Next.js: debug client-side" configuration</p>
+              <p>• Use the &quot;Next.js: debug client-side&quot; configuration</p>
               <p>• Set breakpoints in client components</p>
               <p>• Use the ClientDebugger component for runtime debugging</p>
             </div>
             
             <div>
               <h3 className="font-semibold">2. Server-Side Debugging:</h3>
-              <p>• Use the "Next.js: debug server-side" configuration</p>
+              <p>• Use the &quot;Next.js: debug server-side&quot; configuration</p>
               <p>• Set breakpoints in API routes and server components</p>
               <p>• Check server logs via the debug API endpoint</p>
             </div>
             
             <div>
               <h3 className="font-semibold">3. Full Stack Debugging:</h3>
-              <p>• Use the "Next.js: debug full stack" configuration</p>
+              <p>• Use the &quot;Next.js: debug full stack&quot; configuration</p>
               <p>• Debug both client and server simultaneously</p>
             </div>
           </div>

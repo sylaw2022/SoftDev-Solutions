@@ -24,8 +24,14 @@ export default function RegistrationForm({ onSuccess, onError }: RegistrationFor
   console.log('[RegistrationForm] Component called/mounted');
   
   // Also log using the debug system if available
+  interface WindowWithDebug extends Window {
+    debugInfo?: (message: string, data?: Record<string, unknown>) => void;
+    debugError?: (message: string, data?: Record<string, unknown>) => void;
+  }
+  
   if (typeof window !== 'undefined') {
-    (window as any).debugInfo?.('RegistrationForm component mounted', {
+    const win = window as WindowWithDebug;
+    win.debugInfo?.('RegistrationForm component mounted', {
       timestamp: new Date().toISOString(),
       props: { hasOnSuccess: !!onSuccess, hasOnError: !!onError }
     });
@@ -48,7 +54,8 @@ export default function RegistrationForm({ onSuccess, onError }: RegistrationFor
     console.log('[RegistrationForm] useEffect: Component mounted');
     
     if (typeof window !== 'undefined') {
-      (window as any).debugInfo?.('RegistrationForm useEffect: Component mounted', {
+      const win = window as WindowWithDebug;
+      win.debugInfo?.('RegistrationForm useEffect: Component mounted', {
         timestamp: new Date().toISOString(),
         formData: formData
       });
@@ -57,9 +64,11 @@ export default function RegistrationForm({ onSuccess, onError }: RegistrationFor
     return () => {
       console.log('[RegistrationForm] useEffect: Component unmounting');
       if (typeof window !== 'undefined') {
-        (window as any).debugInfo?.('RegistrationForm useEffect: Component unmounting');
+        const win = window as WindowWithDebug;
+        win.debugInfo?.('RegistrationForm useEffect: Component unmounting');
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const validateForm = (): boolean => {
@@ -115,7 +124,8 @@ export default function RegistrationForm({ onSuccess, onError }: RegistrationFor
     console.log('[RegistrationForm] Form submission started', { formData });
     
     if (typeof window !== 'undefined') {
-      (window as any).debugInfo?.('RegistrationForm: Form submission started', { 
+      const win = window as WindowWithDebug;
+      win.debugInfo?.('RegistrationForm: Form submission started', { 
         formData,
         timestamp: new Date().toISOString()
       });
@@ -161,7 +171,8 @@ export default function RegistrationForm({ onSuccess, onError }: RegistrationFor
       
       // Debug logging
       if (typeof window !== 'undefined') {
-        (window as any).debugInfo?.('User registration successful', { email: formData.email });
+        const win = window as WindowWithDebug;
+        win.debugInfo?.('User registration successful', { email: formData.email });
       }
 
     } catch (error) {
@@ -173,7 +184,8 @@ export default function RegistrationForm({ onSuccess, onError }: RegistrationFor
       
       // Debug logging
       if (typeof window !== 'undefined') {
-        (window as any).debugError?.('User registration failed', { error: errorMessage });
+        const win = window as WindowWithDebug;
+        win.debugError?.('User registration failed', { error: errorMessage });
       }
     } finally {
       setIsSubmitting(false);
