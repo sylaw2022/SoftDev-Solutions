@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { serverDebugger } from '@/lib/serverDebugger';
 import { emailService } from '@/lib/emailService';
 import { EmailValidator } from '@/lib/emailValidation';
+import type { Transporter } from 'nodemailer';
 
 interface ContactFormData {
   name: string;
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
   const debugContext = serverDebugger.middleware(request);
   
   try {
-    const body = await request.json();
+    const body = await request.json() as Partial<ContactFormData>;
     const { name, email, company, phone, service, message } = body;
 
     // Validate required fields
@@ -93,8 +94,15 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      // Get the transporter from emailService
-      const transporter = (emailService as any).transporter;
+      // Access transporter through a type-safe interface
+      // Note: This accesses a private property, but with proper typing
+      interface EmailServiceWithTransporter {
+        transporter: Transporter | null;
+      }
+      
+      const serviceWithTransporter = emailService as unknown as EmailServiceWithTransporter;
+      const transporter = serviceWithTransporter.transporter;
+      
       if (!transporter) {
         throw new Error('Email transporter not initialized');
       }
