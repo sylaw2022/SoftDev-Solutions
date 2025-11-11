@@ -74,12 +74,16 @@ pipeline {
             }
             post {
                 always {
-                    publishHTML([
-                        reportDir: '.',
-                        reportFiles: 'eslint-report.html',
-                        reportName: 'ESLint Report',
-                        allowMissing: true
-                    ])
+                    script {
+                        if (fileExists('eslint-report.html')) {
+                            publishHTML([
+                                reportDir: '.',
+                                reportFiles: 'eslint-report.html',
+                                reportName: 'ESLint Report',
+                                allowMissing: true
+                            ])
+                        }
+                    }
                 }
             }
         }
@@ -109,14 +113,17 @@ pipeline {
                         testResultsPattern: 'test-results/jest/**/*.xml',
                         allowEmptyResults: true
                     )
-                    publishCoverage(
-                        adapters: [
-                            jestCoverageAdapter(
-                                path: 'coverage/coverage-final.json'
-                            )
-                        ],
-                        sourceFileResolver: sourceFiles('STORE_ALL_BUILD')
-                    )
+                    // Publish coverage HTML report
+                    script {
+                        if (fileExists('coverage/index.html')) {
+                            publishHTML([
+                                reportDir: 'coverage',
+                                reportFiles: 'index.html',
+                                reportName: 'Jest Coverage Report',
+                                allowMissing: true
+                            ])
+                        }
+                    }
                 }
             }
         }
@@ -157,12 +164,16 @@ pipeline {
                         testResultsPattern: 'test-results/e2e/**/*.xml',
                         allowEmptyResults: true
                     )
-                    publishHTML([
-                        reportDir: 'playwright-report',
-                        reportFiles: 'index.html',
-                        reportName: 'Playwright E2E Test Report',
-                        allowMissing: true
-                    ])
+                    script {
+                        if (fileExists('playwright-report/index.html')) {
+                            publishHTML([
+                                reportDir: 'playwright-report',
+                                reportFiles: 'index.html',
+                                reportName: 'Playwright E2E Test Report',
+                                allowMissing: true
+                            ])
+                        }
+                    }
                     // Archive screenshots and videos from failed tests
                     archiveArtifacts artifacts: 'test-results/**/*', allowEmptyArchive: true
                 }
@@ -182,15 +193,15 @@ pipeline {
     post {
         always {
             echo 'Pipeline execution completed'
-            cleanWs(
-                deleteDirs: true,
-                patterns: [
-                    [pattern: '.next/**', type: 'EXCLUDE'],
-                    [pattern: 'node_modules/**', type: 'EXCLUDE'],
-                    [pattern: 'coverage/**', type: 'EXCLUDE'],
-                    [pattern: 'test-results/**', type: 'EXCLUDE']
-                ]
-            )
+            // Clean workspace but preserve important artifacts
+            script {
+                // Keep artifacts, clean temporary files
+                sh '''
+                    # Clean temporary files but keep build artifacts
+                    find . -type f -name "*.log" -delete 2>/dev/null || true
+                    find . -type d -name ".cache" -exec rm -rf {} + 2>/dev/null || true
+                '''
+            }
         }
         success {
             echo 'Pipeline succeeded! ✅'
