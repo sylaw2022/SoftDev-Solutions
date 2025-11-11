@@ -37,7 +37,11 @@ export default function EmailConfigForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [emailStatus, setEmailStatus] = useState<EmailStatus | null>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(true);
-  const { showNotification } = useNotification();
+  const { addNotification } = useNotification();
+  
+  const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
+    addNotification(type, message);
+  };
 
   // Fetch current email status on component mount
   useEffect(() => {

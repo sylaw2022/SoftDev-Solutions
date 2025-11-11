@@ -10,6 +10,7 @@ interface ServerLog {
   message: string;
   timestamp: string;
   context?: Record<string, unknown>;
+  data?: Record<string, unknown>;
 }
 
 interface EnvironmentInfo {
@@ -18,8 +19,8 @@ interface EnvironmentInfo {
 }
 
 interface PerformanceMetrics {
-  memoryUsage?: Record<string, unknown>;
-  networkInfo?: Record<string, unknown>;
+  memoryUsage?: Record<string, unknown> | null;
+  networkInfo?: Record<string, unknown> | null;
   localStorage?: Record<string, unknown>;
   sessionStorage?: Record<string, unknown>;
   cookies?: Record<string, unknown>;
@@ -27,11 +28,15 @@ interface PerformanceMetrics {
 
 interface DatabaseHealth {
   status?: string;
+  message?: string;
+  userCount?: number;
   [key: string]: unknown;
 }
 
 interface EmailStatus {
   status?: string;
+  message?: string;
+  environment?: string;
   [key: string]: unknown;
 }
 
@@ -352,14 +357,14 @@ export default function DebugPage() {
                 <p className={`font-semibold ${
                   databaseHealth.status === 'healthy' ? 'text-green-800' : 'text-red-800'
                 }`}>
-                  {databaseHealth.status.toUpperCase()}
+                  {databaseHealth.status?.toUpperCase() ?? 'UNKNOWN'}
                 </p>
-                <p className="text-sm text-gray-600 mt-1">{databaseHealth.message}</p>
+                <p className="text-sm text-gray-600 mt-1">{String(databaseHealth.message ?? '')}</p>
               </div>
               
               <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
                 <h3 className="font-semibold mb-2">User Count</h3>
-                <p className="text-2xl font-bold text-blue-800">{databaseHealth.userCount}</p>
+                <p className="text-2xl font-bold text-blue-800">{String(databaseHealth.userCount ?? 0)}</p>
                 <p className="text-sm text-gray-600 mt-1">Total registered users</p>
               </div>
             </div>
@@ -387,14 +392,14 @@ export default function DebugPage() {
                 <p className={`font-semibold ${
                   emailStatus.status === 'healthy' ? 'text-green-800' : 'text-red-800'
                 }`}>
-                  {emailStatus.status.toUpperCase()}
+                  {emailStatus.status?.toUpperCase() ?? 'UNKNOWN'}
                 </p>
-                <p className="text-sm text-gray-600 mt-1">{emailStatus.message}</p>
+                <p className="text-sm text-gray-600 mt-1">{String(emailStatus.message ?? '')}</p>
               </div>
               
               <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
                 <h3 className="font-semibold mb-2">Environment</h3>
-                <p className="text-lg font-bold text-blue-800">{emailStatus.environment}</p>
+                <p className="text-lg font-bold text-blue-800">{String(emailStatus.environment ?? 'unknown')}</p>
                 <p className="text-sm text-gray-600 mt-1">Current environment</p>
               </div>
             </div>

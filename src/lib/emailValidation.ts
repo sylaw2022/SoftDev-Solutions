@@ -131,7 +131,9 @@ export class EmailValidator {
       return {
         isValid: false,
         error: 'Invalid email format',
-        details: {}
+        details: {
+          hasRecords: false
+        }
       };
     }
 
@@ -141,7 +143,9 @@ export class EmailValidator {
       return {
         isValid: false,
         error: 'Could not extract domain from email',
-        details: {}
+        details: {
+          hasRecords: false
+        }
       };
     }
 
