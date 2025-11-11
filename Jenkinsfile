@@ -36,22 +36,29 @@ pipeline {
             steps {
                 echo 'Setting up Node.js environment...'
                 sh '''
-                    node --version || echo "Node.js not found, installing..."
-                    npm --version || echo "npm not found, installing..."
-                '''
-                script {
-                    // Use Node.js version from environment or default
-                    def nodeVersion = env.NODE_VERSION ?: '20'
-                    sh """
-                        if ! command -v nvm &> /dev/null; then
-                            export NVM_DIR="\${HOME}/.nvm"
-                            [ -s "\$NVM_DIR/nvm.sh" ] && . "\$NVM_DIR/nvm.sh"
-                        fi
-                        nvm use ${nodeVersion} || nvm install ${nodeVersion}
+                    # Check if Node.js is already available
+                    if command -v node &> /dev/null; then
+                        echo "Node.js is already installed:"
                         node --version
                         npm --version
-                    """
-                }
+                    else
+                        echo "Node.js not found. Attempting to use nvm..."
+                        
+                        # Try to source nvm if it exists
+                        export NVM_DIR="${HOME}/.nvm"
+                        if [ -s "$NVM_DIR/nvm.sh" ]; then
+                            . "$NVM_DIR/nvm.sh"
+                            NODE_VERSION="${NODE_VERSION:-20}"
+                            nvm use ${NODE_VERSION} || nvm install ${NODE_VERSION}
+                            node --version
+                            npm --version
+                        else
+                            echo "ERROR: Node.js is not installed and nvm is not available."
+                            echo "Please install Node.js ${NODE_VERSION:-20} on the Jenkins agent."
+                            exit 1
+                        fi
+                    fi
+                '''
             }
         }
         
