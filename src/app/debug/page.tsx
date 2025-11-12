@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import ClientDebugger from '@/components/ClientDebugger';
-import EmailConfigForm from '@/components/EmailConfigForm';
 import { clientDebugUtils, debugHelpers } from '@/lib/debugUtils';
 
 interface ServerLog {
@@ -33,12 +32,6 @@ interface DatabaseHealth {
   [key: string]: unknown;
 }
 
-interface EmailStatus {
-  status?: string;
-  message?: string;
-  environment?: string;
-  [key: string]: unknown;
-}
 
 interface WindowWithDebug extends Window {
   debugInfo?: (message: string, data?: Record<string, unknown>) => void;
@@ -51,7 +44,6 @@ export default function DebugPage() {
   const [environmentInfo, setEnvironmentInfo] = useState<EnvironmentInfo | null>(null);
   const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics | null>(null);
   const [databaseHealth, setDatabaseHealth] = useState<DatabaseHealth | null>(null);
-  const [emailStatus, setEmailStatus] = useState<EmailStatus | null>(null);
 
   // Test client-side debugging
   const testClientDebugging = () => {
@@ -190,53 +182,6 @@ export default function DebugPage() {
     }
   };
 
-  // Get email status
-  const getEmailStatus = async () => {
-    try {
-      const response = await fetch('/api/email/test');
-      const data = await response.json();
-      setEmailStatus(data);
-      
-      if (typeof window !== 'undefined') {
-        const win = window as WindowWithDebug;
-        win.debugInfo?.('Email status retrieved', data);
-      }
-    } catch (error) {
-      console.error('[DebugPage] Failed to get email status:', error);
-    }
-  };
-
-  // Test email sending
-  const testEmailSending = async () => {
-    try {
-      const testData = {
-        to: 'groklord@yahoo.com',
-        firstName: 'Test',
-        lastName: 'User',
-        company: 'Test Company'
-      };
-
-      const response = await fetch('/api/email/test', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(testData)
-      });
-
-      const result = await response.json();
-      
-      if (typeof window !== 'undefined') {
-        const win = window as WindowWithDebug;
-        win.debugInfo?.('Email test completed', { result });
-      }
-    } catch (error) {
-      if (typeof window !== 'undefined') {
-        const win = window as WindowWithDebug;
-        win.debugError?.('Email test failed', { error: error instanceof Error ? error.message : String(error) });
-      }
-    }
-  };
 
   useEffect(() => {
     // Initial debug log
@@ -252,7 +197,6 @@ export default function DebugPage() {
     fetchServerLogs();
     getEnvironmentInfo();
     getDatabaseHealth();
-    getEmailStatus();
     testSystemInfo();
   }, []);
 
@@ -319,19 +263,6 @@ export default function DebugPage() {
               Check Database
             </button>
             
-            <button
-              onClick={getEmailStatus}
-              className="bg-teal-500 text-white px-4 py-2 rounded hover:bg-teal-600 transition-colors"
-            >
-              Check Email Service
-            </button>
-            
-            <button
-              onClick={testEmailSending}
-              className="bg-pink-500 text-white px-4 py-2 rounded hover:bg-pink-600 transition-colors"
-            >
-              Test Email
-            </button>
           </div>
         </div>
 
@@ -371,40 +302,6 @@ export default function DebugPage() {
           </div>
         )}
 
-        {/* Email Configuration */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-4">📧 Email Configuration</h2>
-          <p className="text-gray-600 mb-4">
-            Configure real email sending instead of test emails. This will allow actual emails to be delivered to recipients.
-          </p>
-          <EmailConfigForm />
-        </div>
-
-        {/* Email Service Status */}
-        {emailStatus && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-            <h2 className="text-xl font-semibold mb-4">Email Service Status</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className={`p-4 rounded-lg ${
-                emailStatus.status === 'healthy' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
-              }`}>
-                <h3 className="font-semibold mb-2">Service Status</h3>
-                <p className={`font-semibold ${
-                  emailStatus.status === 'healthy' ? 'text-green-800' : 'text-red-800'
-                }`}>
-                  {emailStatus.status?.toUpperCase() ?? 'UNKNOWN'}
-                </p>
-                <p className="text-sm text-gray-600 mt-1">{String(emailStatus.message ?? '')}</p>
-              </div>
-              
-              <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
-                <h3 className="font-semibold mb-2">Environment</h3>
-                <p className="text-lg font-bold text-blue-800">{String(emailStatus.environment ?? 'unknown')}</p>
-                <p className="text-sm text-gray-600 mt-1">Current environment</p>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Performance Metrics */}
         {performanceMetrics && (

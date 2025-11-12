@@ -238,53 +238,6 @@ export class UserRepository {
     return stmt.all() as User[];
   }
 
-  // Update email sent status
-  updateEmailSentStatus(id: number, messageId: string): boolean {
-    const stmt = this.db.prepare(`
-      UPDATE users 
-      SET email_sent = TRUE, 
-          email_sent_at = CURRENT_TIMESTAMP, 
-          email_message_id = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
-    const result = stmt.run(messageId, id);
-    return result.changes > 0;
-  }
-
-  // Update admin notification sent status
-  updateAdminNotificationSentStatus(id: number, messageId: string): boolean {
-    const stmt = this.db.prepare(`
-      UPDATE users 
-      SET admin_notification_sent = TRUE, 
-          admin_notification_sent_at = CURRENT_TIMESTAMP, 
-          admin_notification_message_id = ?,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
-    const result = stmt.run(messageId, id);
-    return result.changes > 0;
-  }
-
-  // Get users with pending emails
-  getUsersWithPendingEmails(): User[] {
-    const stmt = this.db.prepare(`
-      SELECT * FROM users 
-      WHERE email_sent = FALSE 
-      ORDER BY created_at ASC
-    `);
-    return stmt.all() as User[];
-  }
-
-  // Get users with pending admin notifications
-  getUsersWithPendingAdminNotifications(): User[] {
-    const stmt = this.db.prepare(`
-      SELECT * FROM users 
-      WHERE admin_notification_sent = FALSE 
-      ORDER BY created_at ASC
-    `);
-    return stmt.all() as User[];
-  }
 }
 
 // Export singleton instance
