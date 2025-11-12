@@ -18,7 +18,7 @@ export function getDatabase(): Pool {
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
       max: 20, // Maximum number of clients in the pool
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
+      connectionTimeoutMillis: 10000, // Increased to 10 seconds to allow PostgreSQL to be ready
     });
 
     // Handle pool errors
@@ -26,36 +26,63 @@ export function getDatabase(): Pool {
       console.error('[Database] Unexpected error on idle client', err);
     });
 
-    // Initialize database schema with retry logic
+    // Initialize database schema with retry logic (non-blocking)
+    // Don't block server startup if database isn't ready yet
+    // Schema will be initialized on first actual database operation if needed
     initializeDatabaseWithRetry().catch((err) => {
-      console.error('[Database] Failed to initialize database after retries:', err);
+      console.warn('[Database] Database initialization deferred (will retry on first use):', err.message);
+      // Don't throw - allow server to start even if database isn't ready
+      // The retry logic will handle it when database operations are actually needed
     });
   }
   return pool;
 }
 
+// Track if database is initialized
+let dbInitialized = false;
+let initializationPromise: Promise<void> | null = null;
+
 // Initialize database schema with retry logic
 async function initializeDatabaseWithRetry(maxRetries: number = 5, delayMs: number = 2000): Promise<void> {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      await initializeDatabase();
-      return; // Success, exit retry loop
-    } catch (error) {
-      const isConnectionError = error instanceof Error && 
-        (error.message.includes('ECONNREFUSED') || 
-         error.message.includes('connect') ||
-         error.message.includes('timeout'));
-      
-      if (isConnectionError && attempt < maxRetries) {
-        console.log(`[Database] Connection attempt ${attempt}/${maxRetries} failed, retrying in ${delayMs}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-        continue;
-      }
-      
-      // If not a connection error or last attempt, throw
-      throw error;
-    }
+  // If already initialized, return immediately
+  if (dbInitialized) {
+    return;
   }
+  
+  // If initialization is in progress, wait for it
+  if (initializationPromise) {
+    return initializationPromise;
+  }
+  
+  // Start initialization
+  initializationPromise = (async () => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await initializeDatabase();
+        dbInitialized = true;
+        initializationPromise = null;
+        return; // Success, exit retry loop
+      } catch (error) {
+        const isConnectionError = error instanceof Error && 
+          (error.message.includes('ECONNREFUSED') || 
+           error.message.includes('connect') ||
+           error.message.includes('timeout') ||
+           error.message.includes('Connection terminated'));
+        
+        if (isConnectionError && attempt < maxRetries) {
+          console.log(`[Database] Connection attempt ${attempt}/${maxRetries} failed, retrying in ${delayMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          continue;
+        }
+        
+        // If not a connection error or last attempt, throw
+        initializationPromise = null;
+        throw error;
+      }
+    }
+  })();
+  
+  return initializationPromise;
 }
 
 // Initialize database schema
@@ -136,9 +163,21 @@ export class UserRepository {
   constructor() {
     this.db = getDatabase();
   }
+  
+  // Ensure database is initialized before operations
+  private async ensureInitialized(): Promise<void> {
+    try {
+      await initializeDatabaseWithRetry();
+    } catch (error) {
+      // If initialization fails, log but don't block
+      // The actual query will fail with a clearer error
+      console.warn('[UserRepository] Database initialization check failed:', error instanceof Error ? error.message : error);
+    }
+  }
 
   // Create a new user
   async createUser(userData: CreateUserData): Promise<User> {
+    await this.ensureInitialized();
     const result = await this.db.query<User>(
       `INSERT INTO users (first_name, last_name, email, company, phone, message)
        VALUES ($1, $2, $3, $4, $5, $6)
