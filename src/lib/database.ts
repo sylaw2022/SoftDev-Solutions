@@ -26,12 +26,36 @@ export function getDatabase(): Pool {
       console.error('[Database] Unexpected error on idle client', err);
     });
 
-    // Initialize database schema
-    initializeDatabase().catch((err) => {
-      console.error('[Database] Failed to initialize database:', err);
+    // Initialize database schema with retry logic
+    initializeDatabaseWithRetry().catch((err) => {
+      console.error('[Database] Failed to initialize database after retries:', err);
     });
   }
   return pool;
+}
+
+// Initialize database schema with retry logic
+async function initializeDatabaseWithRetry(maxRetries: number = 5, delayMs: number = 2000): Promise<void> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await initializeDatabase();
+      return; // Success, exit retry loop
+    } catch (error) {
+      const isConnectionError = error instanceof Error && 
+        (error.message.includes('ECONNREFUSED') || 
+         error.message.includes('connect') ||
+         error.message.includes('timeout'));
+      
+      if (isConnectionError && attempt < maxRetries) {
+        console.log(`[Database] Connection attempt ${attempt}/${maxRetries} failed, retrying in ${delayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        continue;
+      }
+      
+      // If not a connection error or last attempt, throw
+      throw error;
+    }
+  }
 }
 
 // Initialize database schema

@@ -71,6 +71,11 @@ export default defineConfig({
     timeout: 120 * 1000,
     stdout: 'pipe',
     stderr: 'pipe',
+    env: {
+      // Pass DATABASE_URL to the server process if it's set
+      ...(process.env.DATABASE_URL && { DATABASE_URL: process.env.DATABASE_URL }),
+      NODE_ENV: process.env.NODE_ENV || 'test',
+    },
   },
 });
 

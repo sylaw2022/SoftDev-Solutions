@@ -212,9 +212,18 @@ pipeline {
                             error('PostgreSQL container failed to start')
                         }
                         
-                        echo 'PostgreSQL is ready!'
+                        // Additional verification: Try to connect to the database
+                        echo 'Verifying database connection...'
+                        sh '''
+                            timeout 30 bash -c 'until docker exec postgres-e2e-test psql -U testuser -d softdev_solutions_test -c "SELECT 1;" > /dev/null 2>&1; do sleep 1; done'
+                        '''
+                        
+                        echo 'PostgreSQL is ready and accepting connections!'
                         env.DATABASE_URL = 'postgresql://testuser:testpass@localhost:5432/softdev_solutions_test'
                         env.DATABASE_AVAILABLE = 'true'
+                        
+                        // Give PostgreSQL a moment to fully initialize
+                        sleep(time: 2, unit: 'SECONDS')
                     } else {
                         echo 'WARNING: Docker is not available. Database tests will be skipped.'
                         echo 'To enable database testing, install Docker on the Jenkins agent.'
@@ -244,23 +253,31 @@ pipeline {
                 '''
                 
                 echo 'Running end-to-end tests...'
-                sh '''
-                    # Playwright will automatically start the server using webServer config
-                    # Set base URL for tests
-                    export PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
-                    
-                    # DATABASE_URL is set by Jenkins environment if PostgreSQL is available
-                    if [ "${DATABASE_AVAILABLE:-false}" = "true" ]; then
+                script {
+                    // Ensure DATABASE_URL is available in the environment
+                    if (env.DATABASE_AVAILABLE == 'true') {
                         echo "Running E2E tests with database support..."
-                        echo "DATABASE_URL is set: ${DATABASE_URL}"
-                    else
+                        echo "DATABASE_URL: ${env.DATABASE_URL}"
+                    } else {
                         echo "Running E2E tests without database (database tests will be skipped)..."
-                        unset DATABASE_URL
-                    fi
+                    }
                     
-                    # Run E2E tests (Playwright handles server lifecycle)
-                    npm run test:e2e
-                '''
+                    sh '''
+                        # Playwright will automatically start the server using webServer config
+                        # Set base URL for tests
+                        export PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
+                        
+                        # Export DATABASE_URL if it's set (Playwright will pass it to webServer)
+                        if [ -n "${DATABASE_URL:-}" ]; then
+                            export DATABASE_URL="${DATABASE_URL}"
+                            echo "DATABASE_URL exported for Playwright: ${DATABASE_URL}"
+                        fi
+                        
+                        # Run E2E tests (Playwright handles server lifecycle)
+                        # DATABASE_URL will be available to the webServer process via playwright.config.ts
+                        npm run test:e2e
+                    '''
+                }
             }
             post {
                 always {
