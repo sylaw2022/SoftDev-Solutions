@@ -174,6 +174,15 @@ pipeline {
                     # Also install chromium headless shell if needed
                     npx playwright install chromium-headless-shell || true
                     
+                    # Install additional browsers for cross-browser testing
+                    npx playwright install firefox
+                    npx playwright install webkit
+                    
+                    # Install mobile browsers (mobile Chrome and mobile Safari)
+                    # Mobile Safari is included with webkit, mobile Chrome with chromium
+                    # But we can also install all mobile browsers explicitly
+                    npx playwright install || true
+                    
                     echo "Playwright browsers installation completed"
                 '''
                 echo 'Running end-to-end tests...'
