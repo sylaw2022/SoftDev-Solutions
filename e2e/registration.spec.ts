@@ -51,10 +51,32 @@ async function verifyUserInDatabase(baseURL: string, email: string) {
 
 test.describe('Registration Form - Real Database Tests', () => {
   const testUsers: Array<{ id?: number; email: string }> = [];
+  let databaseAvailable = false;
+
+  // Check database availability before running tests
+  test.beforeAll(async ({ baseURL }) => {
+    if (!baseURL) {
+      return;
+    }
+    
+    // Try to check database health
+    try {
+      const response = await fetch(`${baseURL}/api/admin/database`);
+      const health = await response.json();
+      databaseAvailable = health.status === 'healthy';
+      
+      if (!databaseAvailable) {
+        console.warn('[Test] Database is not available. Some registration tests will be skipped.');
+      }
+    } catch (error) {
+      console.warn('[Test] Could not check database health:', error);
+      databaseAvailable = false;
+    }
+  });
 
   // Cleanup: Delete all test users after all tests
   test.afterAll(async ({ baseURL }) => {
-    if (baseURL) {
+    if (baseURL && databaseAvailable) {
       for (const testUser of testUsers) {
         if (testUser.id) {
           try {
@@ -96,6 +118,10 @@ test.describe('Registration Form - Real Database Tests', () => {
   });
 
   test('should create user in database via real API call', async ({ page, baseURL }) => {
+    if (!baseURL || !databaseAvailable) {
+      test.skip();
+      return;
+    }
     const testEmail = generateTestEmail();
     const testUserData = {
       firstName: 'John',
@@ -140,7 +166,7 @@ test.describe('Registration Form - Real Database Tests', () => {
   });
 
   test('should create and verify user in database via direct API call', async ({ baseURL }) => {
-    if (!baseURL) {
+    if (!baseURL || !databaseAvailable) {
       test.skip();
       return;
     }
@@ -185,7 +211,7 @@ test.describe('Registration Form - Real Database Tests', () => {
   });
 
   test('should prevent duplicate email registration', async ({ baseURL }) => {
-    if (!baseURL) {
+    if (!baseURL || !databaseAvailable) {
       test.skip();
       return;
     }
@@ -212,7 +238,7 @@ test.describe('Registration Form - Real Database Tests', () => {
   });
 
   test('should delete user from database', async ({ baseURL }) => {
-    if (!baseURL) {
+    if (!baseURL || !databaseAvailable) {
       test.skip();
       return;
     }
@@ -272,6 +298,10 @@ test.describe('Registration Form - Real Database Tests', () => {
   });
 
   test('should accept any email format (validation removed)', async ({ page, baseURL }) => {
+    if (!baseURL || !databaseAvailable) {
+      test.skip();
+      return;
+    }
     const testEmail = 'any-email-format-test';
     const testUserData = {
       firstName: 'Format',

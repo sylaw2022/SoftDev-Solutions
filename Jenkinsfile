@@ -165,6 +165,63 @@ pipeline {
         
         stage('E2E Tests') {
             steps {
+                echo 'Setting up PostgreSQL database for E2E tests...'
+                script {
+                    // Check if Docker is available and start PostgreSQL
+                    def dockerAvailable = sh(
+                        script: 'command -v docker &> /dev/null && echo "yes" || echo "no"',
+                        returnStdout: true
+                    ).trim() == 'yes'
+                    
+                    if (dockerAvailable) {
+                        echo 'Docker is available. Starting PostgreSQL container...'
+                        
+                        // Stop and remove any existing test database container
+                        sh '''
+                            docker stop postgres-e2e-test 2>/dev/null || true
+                            docker rm postgres-e2e-test 2>/dev/null || true
+                        '''
+                        
+                        // Start PostgreSQL container
+                        sh '''
+                            docker run -d \\
+                                --name postgres-e2e-test \\
+                                -e POSTGRES_USER=testuser \\
+                                -e POSTGRES_PASSWORD=testpass \\
+                                -e POSTGRES_DB=softdev_solutions_test \\
+                                -p 5432:5432 \\
+                                --health-cmd="pg_isready -U testuser" \\
+                                --health-interval=5s \\
+                                --health-timeout=5s \\
+                                --health-retries=10 \\
+                                postgres:15-alpine
+                        '''
+                        
+                        // Wait for PostgreSQL to be ready
+                        echo 'Waiting for PostgreSQL to be ready...'
+                        def pgReady = sh(
+                            script: '''
+                                timeout 60 bash -c 'until docker exec postgres-e2e-test pg_isready -U testuser; do sleep 2; done' && echo "ready" || echo "not_ready"
+                            ''',
+                            returnStdout: true
+                        ).trim()
+                        
+                        if (pgReady != 'ready') {
+                            echo 'ERROR: PostgreSQL failed to start within timeout'
+                            sh 'docker logs postgres-e2e-test'
+                            error('PostgreSQL container failed to start')
+                        }
+                        
+                        echo 'PostgreSQL is ready!'
+                        env.DATABASE_URL = 'postgresql://testuser:testpass@localhost:5432/softdev_solutions_test'
+                        env.DATABASE_AVAILABLE = 'true'
+                    } else {
+                        echo 'WARNING: Docker is not available. Database tests will be skipped.'
+                        echo 'To enable database testing, install Docker on the Jenkins agent.'
+                        env.DATABASE_AVAILABLE = 'false'
+                    }
+                }
+                
                 echo 'Installing Playwright browsers...'
                 sh '''
                     # Install Playwright browsers (required for E2E tests)
@@ -185,11 +242,21 @@ pipeline {
                     
                     echo "Playwright browsers installation completed"
                 '''
+                
                 echo 'Running end-to-end tests...'
                 sh '''
                     # Playwright will automatically start the server using webServer config
                     # Set base URL for tests
                     export PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
+                    
+                    # DATABASE_URL is set by Jenkins environment if PostgreSQL is available
+                    if [ "${DATABASE_AVAILABLE:-false}" = "true" ]; then
+                        echo "Running E2E tests with database support..."
+                        echo "DATABASE_URL is set: ${DATABASE_URL}"
+                    else
+                        echo "Running E2E tests without database (database tests will be skipped)..."
+                        unset DATABASE_URL
+                    fi
                     
                     # Run E2E tests (Playwright handles server lifecycle)
                     npm run test:e2e
@@ -197,6 +264,19 @@ pipeline {
             }
             post {
                 always {
+                    // Cleanup PostgreSQL container
+                    script {
+                        sh '''
+                            # Stop and remove PostgreSQL test container
+                            if docker ps -a --format "{{.Names}}" | grep -q "^postgres-e2e-test$"; then
+                                echo "Cleaning up PostgreSQL test container..."
+                                docker stop postgres-e2e-test 2>/dev/null || true
+                                docker rm postgres-e2e-test 2>/dev/null || true
+                                echo "PostgreSQL container cleaned up"
+                            fi
+                        '''
+                    }
+                    
                     // Publish JUnit test results
                     junit(
                         testResults: 'test-results/e2e/**/*.xml',
