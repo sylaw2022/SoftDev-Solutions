@@ -36,9 +36,9 @@ export function getDatabase(): Pool {
     // Initialize database schema with retry logic (non-blocking)
     // Don't block server startup if database isn't ready yet
     // Schema will be initialized on first actual database operation if needed
-    // For Render.com, add a small delay to allow database to be ready
+    // For Render.com, add a longer delay to allow database to be ready
     const isRenderCom = connectionString.includes('render.com');
-    const initDelay = isRenderCom ? 3000 : 0; // 3 second delay for Render.com
+    const initDelay = isRenderCom ? 5000 : 1000; // 5 second delay for Render.com, 1s for others
     
     setTimeout(() => {
       initializeDatabaseWithRetry().catch((err) => {
@@ -72,7 +72,7 @@ let dbInitialized = false;
 let initializationPromise: Promise<void> | null = null;
 
 // Initialize database schema with retry logic
-async function initializeDatabaseWithRetry(maxRetries: number = 5, delayMs: number = 2000): Promise<void> {
+async function initializeDatabaseWithRetry(maxRetries: number = 10, initialDelayMs: number = 2000): Promise<void> {
   // If already initialized, return immediately
   if (dbInitialized) {
     return;
@@ -83,13 +83,24 @@ async function initializeDatabaseWithRetry(maxRetries: number = 5, delayMs: numb
     return initializationPromise;
   }
   
+  // Check if this is Render.com (needs more retries and longer delays)
+  const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
+  const isRenderCom = connectionString.includes('render.com');
+  const finalMaxRetries = isRenderCom ? 15 : maxRetries; // More retries for Render.com
+  const baseDelay = isRenderCom ? 3000 : initialDelayMs; // Longer base delay for Render.com
+  
   // Start initialization
   initializationPromise = (async () => {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    for (let attempt = 1; attempt <= finalMaxRetries; attempt++) {
       try {
+        // First, test the connection with a simple query
+        await testDatabaseConnection();
+        
+        // If connection test passes, initialize schema
         await initializeDatabase();
         dbInitialized = true;
         initializationPromise = null;
+        console.log(`[Database] Database initialized successfully after ${attempt} attempt(s)`);
         return; // Success, exit retry loop
       } catch (error) {
         // Handle AggregateError (common on Render.com when multiple connections fail)
@@ -99,7 +110,6 @@ async function initializeDatabaseWithRetry(maxRetries: number = 5, delayMs: numb
         if (error instanceof AggregateError) {
           // Extract error messages from AggregateError
           errorMessage = error.errors?.map((e: Error) => e.message).join('; ') || error.message;
-          console.error(`[Database] AggregateError caught: ${errorMessage}`);
           
           // Check if any of the errors are connection-related
           isConnectionError = error.errors?.some((e: Error) => 
@@ -108,7 +118,9 @@ async function initializeDatabaseWithRetry(maxRetries: number = 5, delayMs: numb
             e.message.includes('timeout') ||
             e.message.includes('Connection terminated') ||
             e.message.includes('ENOTFOUND') ||
-            e.message.includes('ETIMEDOUT')
+            e.message.includes('ETIMEDOUT') ||
+            e.message.includes('getaddrinfo') ||
+            e.message.includes('socket hang up')
           ) || false;
         } else if (error instanceof Error) {
           errorMessage = error.message;
@@ -120,14 +132,22 @@ async function initializeDatabaseWithRetry(maxRetries: number = 5, delayMs: numb
             errorMessage.includes('ENOTFOUND') ||
             errorMessage.includes('ETIMEDOUT') ||
             errorMessage.includes('SSL') ||
-            errorMessage.includes('certificate');
+            errorMessage.includes('certificate') ||
+            errorMessage.includes('getaddrinfo') ||
+            errorMessage.includes('socket hang up');
         } else {
           errorMessage = String(error);
         }
         
-        if (isConnectionError && attempt < maxRetries) {
-          console.log(`[Database] Connection attempt ${attempt}/${maxRetries} failed: ${errorMessage.substring(0, 100)}...`);
-          console.log(`[Database] Retrying in ${delayMs}ms...`);
+        if (isConnectionError && attempt < finalMaxRetries) {
+          // Exponential backoff with jitter
+          const exponentialDelay = baseDelay * Math.pow(1.5, attempt - 1);
+          const jitter = Math.random() * 1000; // Add random jitter (0-1s)
+          const delayMs = Math.min(exponentialDelay + jitter, 30000); // Cap at 30 seconds
+          
+          console.log(`[Database] Connection attempt ${attempt}/${finalMaxRetries} failed: ${errorMessage.substring(0, 150)}`);
+          console.log(`[Database] Retrying in ${Math.round(delayMs)}ms...`);
+          
           await new Promise(resolve => setTimeout(resolve, delayMs));
           continue;
         }
@@ -145,6 +165,8 @@ async function initializeDatabaseWithRetry(maxRetries: number = 5, delayMs: numb
               stack: e.stack?.split('\n').slice(0, 3).join('\n')
             }))
           });
+        } else {
+          console.error('[Database] Initialization failed after all retries:', errorMessage);
         }
         
         throw error;
@@ -153,6 +175,25 @@ async function initializeDatabaseWithRetry(maxRetries: number = 5, delayMs: numb
   })();
   
   return initializationPromise;
+}
+
+// Test database connection with a simple query
+async function testDatabaseConnection(): Promise<void> {
+  const db = getDatabase();
+  
+  try {
+    // Test connection with a simple query
+    const result = await db.query('SELECT 1 as test');
+    if (result.rows[0]?.test !== 1) {
+      throw new Error('Database connection test failed: unexpected result');
+    }
+  } catch (error) {
+    // Re-throw with more context
+    if (error instanceof Error) {
+      throw new Error(`Database connection test failed: ${error.message}`);
+    }
+    throw error;
+  }
 }
 
 // Initialize database schema
