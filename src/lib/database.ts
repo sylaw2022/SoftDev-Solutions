@@ -13,12 +13,19 @@ export function getDatabase(): Pool {
       process.env.POSTGRES_URL ||
       'postgresql://localhost:5432/softdev_solutions';
 
+    // Determine SSL requirement based on connection string (Render.com requires SSL)
+    const requiresSSL = connectionString.includes('render.com') || 
+                        connectionString.includes('amazonaws.com') ||
+                        process.env.NODE_ENV === 'production';
+    
     pool = new Pool({
       connectionString,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      ssl: requiresSSL ? { rejectUnauthorized: false } : false,
       max: 20, // Maximum number of clients in the pool
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000, // Increased to 10 seconds to allow PostgreSQL to be ready
+      // Reduce initial connection attempts to prevent AggregateError
+      min: 0, // Don't create connections until needed
     });
 
     // Handle pool errors
@@ -29,11 +36,33 @@ export function getDatabase(): Pool {
     // Initialize database schema with retry logic (non-blocking)
     // Don't block server startup if database isn't ready yet
     // Schema will be initialized on first actual database operation if needed
-    initializeDatabaseWithRetry().catch((err) => {
-      console.warn('[Database] Database initialization deferred (will retry on first use):', err.message);
-      // Don't throw - allow server to start even if database isn't ready
-      // The retry logic will handle it when database operations are actually needed
-    });
+    // For Render.com, add a small delay to allow database to be ready
+    const isRenderCom = connectionString.includes('render.com');
+    const initDelay = isRenderCom ? 3000 : 0; // 3 second delay for Render.com
+    
+    setTimeout(() => {
+      initializeDatabaseWithRetry().catch((err) => {
+        // Handle AggregateError specifically for better error messages
+        let errorMsg = '';
+        if (err instanceof AggregateError) {
+          errorMsg = err.errors?.map((e: Error) => e.message).join('; ') || err.message;
+          console.warn('[Database] Database initialization deferred (AggregateError):', errorMsg.substring(0, 200));
+          // Log individual errors for debugging
+          if (err.errors && err.errors.length > 0) {
+            err.errors.forEach((e: Error, index: number) => {
+              console.warn(`[Database] Error ${index + 1}: ${e.message.substring(0, 100)}`);
+            });
+          }
+        } else if (err instanceof Error) {
+          errorMsg = err.message;
+          console.warn('[Database] Database initialization deferred (will retry on first use):', errorMsg.substring(0, 200));
+        } else {
+          console.warn('[Database] Database initialization deferred:', String(err).substring(0, 200));
+        }
+        // Don't throw - allow server to start even if database isn't ready
+        // The retry logic will handle it when database operations are actually needed
+      });
+    }, initDelay);
   }
   return pool;
 }
@@ -63,20 +92,61 @@ async function initializeDatabaseWithRetry(maxRetries: number = 5, delayMs: numb
         initializationPromise = null;
         return; // Success, exit retry loop
       } catch (error) {
-        const isConnectionError = error instanceof Error && 
-          (error.message.includes('ECONNREFUSED') || 
-           error.message.includes('connect') ||
-           error.message.includes('timeout') ||
-           error.message.includes('Connection terminated'));
+        // Handle AggregateError (common on Render.com when multiple connections fail)
+        let errorMessage = '';
+        let isConnectionError = false;
+        
+        if (error instanceof AggregateError) {
+          // Extract error messages from AggregateError
+          errorMessage = error.errors?.map((e: Error) => e.message).join('; ') || error.message;
+          console.error(`[Database] AggregateError caught: ${errorMessage}`);
+          
+          // Check if any of the errors are connection-related
+          isConnectionError = error.errors?.some((e: Error) => 
+            e.message.includes('ECONNREFUSED') ||
+            e.message.includes('connect') ||
+            e.message.includes('timeout') ||
+            e.message.includes('Connection terminated') ||
+            e.message.includes('ENOTFOUND') ||
+            e.message.includes('ETIMEDOUT')
+          ) || false;
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+          isConnectionError = 
+            errorMessage.includes('ECONNREFUSED') || 
+            errorMessage.includes('connect') ||
+            errorMessage.includes('timeout') ||
+            errorMessage.includes('Connection terminated') ||
+            errorMessage.includes('ENOTFOUND') ||
+            errorMessage.includes('ETIMEDOUT') ||
+            errorMessage.includes('SSL') ||
+            errorMessage.includes('certificate');
+        } else {
+          errorMessage = String(error);
+        }
         
         if (isConnectionError && attempt < maxRetries) {
-          console.log(`[Database] Connection attempt ${attempt}/${maxRetries} failed, retrying in ${delayMs}ms...`);
+          console.log(`[Database] Connection attempt ${attempt}/${maxRetries} failed: ${errorMessage.substring(0, 100)}...`);
+          console.log(`[Database] Retrying in ${delayMs}ms...`);
           await new Promise(resolve => setTimeout(resolve, delayMs));
           continue;
         }
         
         // If not a connection error or last attempt, throw
         initializationPromise = null;
+        
+        // Log full error details for debugging
+        if (error instanceof AggregateError) {
+          console.error('[Database] AggregateError details:', {
+            message: error.message,
+            errors: error.errors?.map((e: Error) => ({
+              message: e.message,
+              name: e.name,
+              stack: e.stack?.split('\n').slice(0, 3).join('\n')
+            }))
+          });
+        }
+        
         throw error;
       }
     }
@@ -169,9 +239,17 @@ export class UserRepository {
     try {
       await initializeDatabaseWithRetry();
     } catch (error) {
+      // Handle AggregateError specifically
+      if (error instanceof AggregateError) {
+        const errorMessages = error.errors?.map((e: Error) => e.message).join('; ') || error.message;
+        console.warn('[UserRepository] Database initialization check failed (AggregateError):', errorMessages.substring(0, 200));
+      } else if (error instanceof Error) {
+        console.warn('[UserRepository] Database initialization check failed:', error.message.substring(0, 200));
+      } else {
+        console.warn('[UserRepository] Database initialization check failed:', String(error).substring(0, 200));
+      }
       // If initialization fails, log but don't block
       // The actual query will fail with a clearer error
-      console.warn('[UserRepository] Database initialization check failed:', error instanceof Error ? error.message : error);
     }
   }
 
