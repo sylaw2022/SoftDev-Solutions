@@ -81,13 +81,18 @@ pipeline {
             post {
                 always {
                     script {
-                        if (fileExists('eslint-report.html')) {
-                            publishHTML([
-                                reportDir: '.',
-                                reportFiles: 'eslint-report.html',
-                                reportName: 'ESLint Report',
-                                allowMissing: true
-                            ])
+                        try {
+                            if (fileExists('eslint-report.html')) {
+                                publishHTML([
+                                    reportDir: '.',
+                                    reportFiles: 'eslint-report.html',
+                                    reportName: 'ESLint Report',
+                                    allowMissing: true
+                                ])
+                            }
+                        } catch (Exception e) {
+                            echo "HTML Publisher plugin not available: ${e.message}"
+                            echo "ESLint report available at: eslint-report.html"
                         }
                     }
                 }
@@ -122,13 +127,18 @@ pipeline {
                     )
                     // Publish coverage HTML report
                     script {
-                        if (fileExists('coverage/index.html')) {
-                            publishHTML([
-                                reportDir: 'coverage',
-                                reportFiles: 'index.html',
-                                reportName: 'Jest Coverage Report',
-                                allowMissing: true
-                            ])
+                        try {
+                            if (fileExists('coverage/index.html')) {
+                                publishHTML([
+                                    reportDir: 'coverage',
+                                    reportFiles: 'index.html',
+                                    reportName: 'Jest Coverage Report',
+                                    allowMissing: true
+                                ])
+                            }
+                        } catch (Exception e) {
+                            echo "HTML Publisher plugin not available: ${e.message}"
+                            echo "Coverage report available at: coverage/index.html"
                         }
                     }
                 }
@@ -173,13 +183,18 @@ pipeline {
                         allowEmptyResults: true
                     )
                     script {
-                        if (fileExists('playwright-report/index.html')) {
-                            publishHTML([
-                                reportDir: 'playwright-report',
-                                reportFiles: 'index.html',
-                                reportName: 'Playwright E2E Test Report',
-                                allowMissing: true
-                            ])
+                        try {
+                            if (fileExists('playwright-report/index.html')) {
+                                publishHTML([
+                                    reportDir: 'playwright-report',
+                                    reportFiles: 'index.html',
+                                    reportName: 'Playwright E2E Test Report',
+                                    allowMissing: true
+                                ])
+                            }
+                        } catch (Exception e) {
+                            echo "HTML Publisher plugin not available: ${e.message}"
+                            echo "Playwright report available at: playwright-report/index.html"
                         }
                     }
                     // Archive screenshots and videos from failed tests
