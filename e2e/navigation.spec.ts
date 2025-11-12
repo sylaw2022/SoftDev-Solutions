@@ -31,10 +31,10 @@ test.describe('Navigation', () => {
     if (await menuButton.isVisible()) {
       await menuButton.click();
       
-      // Check if mobile menu is visible
-      await expect(page.getByRole('link', { name: /home/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /services/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: /contact/i })).toBeVisible();
+      // Check if mobile menu is visible (use first() to handle multiple occurrences)
+      await expect(page.getByRole('link', { name: /home/i }).first()).toBeVisible();
+      await expect(page.getByRole('link', { name: /services/i }).first()).toBeVisible();
+      await expect(page.getByRole('link', { name: /contact/i }).first()).toBeVisible();
     }
   });
 
