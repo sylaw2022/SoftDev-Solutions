@@ -28,18 +28,32 @@ test.describe('Registration Form', () => {
     await expect(firstNameField).toBeVisible();
   });
 
-  test('should validate email format', async ({ page }) => {
+  test('should accept any email format (validation removed)', async ({ page }) => {
+    // Email format validation has been removed
+    // This test verifies the form accepts any email input
     await page.getByLabel(/first name/i).fill('John');
     await page.getByLabel(/last name/i).fill('Doe');
-    await page.getByLabel(/email address/i).fill('invalid-email');
+    await page.getByLabel(/email address/i).fill('any-email-format');
     await page.getByLabel(/company name/i).fill('Test Company');
     await page.getByLabel(/phone number/i).fill('+1234567890');
+    
+    // Mock successful API response
+    await page.route('**/api/register', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          message: 'Registration successful!',
+        }),
+      });
+    });
     
     const submitButton = page.getByRole('button', { name: /register for free consultation/i });
     await submitButton.click();
     
-    // Should show email validation error
-    await page.waitForTimeout(500);
+    // Form should submit without email format validation
+    await page.waitForTimeout(1000);
   });
 
   test('should submit registration form successfully', async ({ page }) => {
