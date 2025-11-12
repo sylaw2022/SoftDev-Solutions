@@ -14,12 +14,12 @@ test.describe('Home Page', () => {
   test('should display all service cards', async ({ page }) => {
     await page.goto('/');
     
-    // Check for service cards
-    await expect(page.getByText('Embedded Linux Firmware')).toBeVisible();
-    await expect(page.getByText('Device Driver Development')).toBeVisible();
-    await expect(page.getByText('AI Model Design & Development')).toBeVisible();
-    await expect(page.getByText('FPGA Design & Development')).toBeVisible();
-    await expect(page.getByText('Communication Systems Consulting')).toBeVisible();
+    // Check for service cards (use first() to handle multiple occurrences)
+    await expect(page.getByText('Embedded Linux Firmware').first()).toBeVisible();
+    await expect(page.getByText('Device Driver Development').first()).toBeVisible();
+    await expect(page.getByText('AI Model Design & Development').first()).toBeVisible();
+    await expect(page.getByText('FPGA Design & Development').first()).toBeVisible();
+    await expect(page.getByText('Communication Systems Consulting').first()).toBeVisible();
   });
 
   test('should navigate to services page', async ({ page }) => {
