@@ -165,6 +165,17 @@ pipeline {
         
         stage('E2E Tests') {
             steps {
+                echo 'Installing Playwright browsers...'
+                sh '''
+                    # Install Playwright browsers (required for E2E tests)
+                    # Install chromium browser (used by default in Playwright)
+                    npx playwright install chromium
+                    
+                    # Also install chromium headless shell if needed
+                    npx playwright install chromium-headless-shell || true
+                    
+                    echo "Playwright browsers installation completed"
+                '''
                 echo 'Running end-to-end tests...'
                 sh '''
                     # Playwright will automatically start the server using webServer config
