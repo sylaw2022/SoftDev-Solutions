@@ -13,8 +13,11 @@ export function getDatabase(): Pool {
       process.env.POSTGRES_URL ||
       'postgresql://localhost:5432/softdev_solutions';
 
+    // Check if this is Render.com (needs special handling)
+    const isRenderCom = connectionString.includes('render.com');
+
     // Determine SSL requirement based on connection string (Render.com requires SSL)
-    const requiresSSL = connectionString.includes('render.com') || 
+    const requiresSSL = isRenderCom || 
                         connectionString.includes('amazonaws.com') ||
                         process.env.NODE_ENV === 'production';
     
@@ -23,7 +26,9 @@ export function getDatabase(): Pool {
       ssl: requiresSSL ? { rejectUnauthorized: false } : false,
       max: 20, // Maximum number of clients in the pool
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000, // Increased to 10 seconds to allow PostgreSQL to be ready
+      // For Render.com, use longer timeout to account for database provisioning time
+      // Free plan databases can take 30-60 seconds to be ready after deployment
+      connectionTimeoutMillis: isRenderCom ? 30000 : 10000, // 30s for Render.com, 10s for others
       // Reduce initial connection attempts to prevent AggregateError
       min: 0, // Don't create connections until needed
     });
@@ -37,7 +42,6 @@ export function getDatabase(): Pool {
     // Don't block server startup if database isn't ready yet
     // Schema will be initialized on first actual database operation if needed
     // For Render.com, add a longer delay to allow database to be ready
-    const isRenderCom = connectionString.includes('render.com');
     const initDelay = isRenderCom ? 5000 : 1000; // 5 second delay for Render.com, 1s for others
     
     setTimeout(() => {
