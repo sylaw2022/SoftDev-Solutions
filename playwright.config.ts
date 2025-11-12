@@ -72,8 +72,7 @@ export default defineConfig({
     stdout: 'pipe',
     stderr: 'pipe',
     env: {
-      // Pass DATABASE_URL to the server process if it's set
-      ...(process.env.DATABASE_URL && { DATABASE_URL: process.env.DATABASE_URL }),
+      // SQLite database will be created automatically in data/ directory
       NODE_ENV: process.env.NODE_ENV || 'test',
     },
   },

@@ -165,103 +165,12 @@ pipeline {
         
         stage('E2E Tests') {
             steps {
-                echo 'Setting up PostgreSQL database for E2E tests...'
+                echo 'Setting up SQLite database for E2E tests...'
                 script {
-                    // Check if Docker is available and start PostgreSQL
-                    def dockerAvailable = sh(
-                        script: 'command -v docker &> /dev/null && echo "yes" || echo "no"',
-                        returnStdout: true
-                    ).trim() == 'yes'
-                    
-                    if (!dockerAvailable) {
-                        echo 'ERROR: Docker is not available. E2E tests require PostgreSQL container.'
-                        echo 'To run E2E tests, install Docker on the Jenkins agent.'
-                        error('Docker is required for E2E tests. Please install Docker on the Jenkins agent.')
-                    }
-                    
-                    echo 'Docker is available. Starting PostgreSQL container...'
-                    
-                    // Stop and remove any existing test database container
-                    sh '''
-                        docker stop postgres-e2e-test 2>/dev/null || true
-                        docker rm postgres-e2e-test 2>/dev/null || true
-                    '''
-                    
-                    // Start PostgreSQL container
-                    sh '''
-                        docker run -d \\
-                            --name postgres-e2e-test \\
-                            -e POSTGRES_USER=testuser \\
-                            -e POSTGRES_PASSWORD=testpass \\
-                            -e POSTGRES_DB=softdev_solutions_test \\
-                            -p 5432:5432 \\
-                            --health-cmd="pg_isready -U testuser" \\
-                            --health-interval=5s \\
-                            --health-timeout=5s \\
-                            --health-retries=10 \\
-                            postgres:15-alpine
-                    '''
-                    
-                    // Wait for PostgreSQL to be ready
-                    echo 'Waiting for PostgreSQL to be ready...'
-                    def pgReady = sh(
-                        script: '''
-                            timeout 60 bash -c 'until docker exec postgres-e2e-test pg_isready -U testuser; do sleep 2; done' && echo "ready" || echo "not_ready"
-                        ''',
-                        returnStdout: true
-                    ).trim()
-                    
-                    if (pgReady != 'ready') {
-                        echo 'ERROR: PostgreSQL failed to start within timeout'
-                        sh 'docker logs postgres-e2e-test'
-                        error('PostgreSQL container failed to start. E2E tests cannot proceed without database.')
-                    }
-                    
-                    // Additional verification: Try to connect to the database
-                    echo 'Verifying database connection...'
-                    def connectionVerified = sh(
-                        script: '''
-                            timeout 30 bash -c 'until docker exec postgres-e2e-test psql -U testuser -d softdev_solutions_test -c "SELECT 1;" > /dev/null 2>&1; do sleep 1; done' && echo "verified" || echo "not_verified"
-                        ''',
-                        returnStdout: true
-                    ).trim()
-                    
-                    if (connectionVerified != 'verified') {
-                        echo 'ERROR: Cannot connect to PostgreSQL database'
-                        sh 'docker logs postgres-e2e-test --tail 50'
-                        error('PostgreSQL database connection failed. E2E tests cannot proceed.')
-                    }
-                    
-                    echo 'PostgreSQL is ready and accepting connections!'
-                    
-                    // Verify database is working
-                    echo '=== Verifying PostgreSQL Database ==='
-                    def dbVerification = sh(
-                        script: '''
-                            docker exec postgres-e2e-test psql -U testuser -d softdev_solutions_test -c "SELECT version();" > /dev/null 2>&1 && echo "success" || echo "failed"
-                        ''',
-                        returnStdout: true
-                    ).trim()
-                    
-                    if (dbVerification != 'success') {
-                        echo 'ERROR: Failed to query database'
-                        sh 'docker logs postgres-e2e-test --tail 50'
-                        error('PostgreSQL database verification failed. E2E tests cannot proceed.')
-                    }
-                    
-                    sh '''
-                        # Check container health
-                        docker inspect postgres-e2e-test --format='{{.State.Health.Status}}' || echo "Health check not available"
-                        echo "✓ PostgreSQL database is working correctly"
-                    '''
-                    
-                    env.DATABASE_URL = 'postgresql://testuser:testpass@localhost:5432/softdev_solutions_test'
-                    env.DATABASE_AVAILABLE = 'true'
-                    
-                    // Give PostgreSQL a moment to fully initialize
-                    sleep(time: 2, unit: 'SECONDS')
-                    
-                    echo '✓ PostgreSQL is running. Proceeding with E2E tests...'
+                    // SQLite doesn't require a separate database server
+                    // Database file will be created automatically in data/ directory
+                    echo '✓ SQLite database will be created automatically during tests'
+                    echo '✓ No database server setup required'
                 }
                 
                 echo 'Installing Playwright browsers...'
@@ -287,65 +196,25 @@ pipeline {
                 
                 echo 'Running end-to-end tests...'
                 script {
-                    // PostgreSQL is guaranteed to be running at this point (stage would have failed otherwise)
-                    echo "Running E2E tests with PostgreSQL database..."
-                    echo "DATABASE_URL: ${env.DATABASE_URL}"
-                    
-                    // Final verification before tests (safety check)
-                    echo '=== Pre-Test Database Verification ==='
-                    def preTestCheck = sh(
-                        script: '''
-                            # Verify container is still running
-                            if ! docker ps | grep -q postgres-e2e-test; then
-                                echo "not_running"
-                                exit 0
-                            fi
-                            
-                            # Test connection one more time
-                            docker exec postgres-e2e-test psql -U testuser -d softdev_solutions_test -c "SELECT 1;" > /dev/null 2>&1 && echo "ready" || echo "not_ready"
-                        ''',
-                        returnStdout: true
-                    ).trim()
-                    
-                    if (preTestCheck != 'ready') {
-                        echo "ERROR: PostgreSQL container check failed: ${preTestCheck}"
-                        sh 'docker ps -a | grep postgres-e2e-test || echo "Container not found"'
-                        sh 'docker logs postgres-e2e-test --tail 50 2>/dev/null || echo "Cannot get logs"'
-                        error('PostgreSQL container is not ready for E2E tests. Tests cannot proceed.')
-                    }
-                    
-                    echo "✓ Database verified and ready for tests"
+                    echo "Running E2E tests with SQLite database..."
+                    echo "SQLite database will be created in data/ directory automatically"
                     
                     sh '''
                         # Playwright will automatically start the server using webServer config
                         # Set base URL for tests
                         export PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
                         
-                        # DATABASE_URL is guaranteed to be set (stage would have failed otherwise)
-                        export DATABASE_URL="${DATABASE_URL}"
-                        echo "DATABASE_URL exported for Playwright: ${DATABASE_URL}"
+                        # Ensure data directory exists for SQLite database
+                        mkdir -p data
                         
                         # Run E2E tests (Playwright handles server lifecycle)
-                        # DATABASE_URL will be available to the webServer process via playwright.config.ts
+                        # SQLite database will be created automatically on first use
                         npm run test:e2e
                     '''
                 }
             }
             post {
                 always {
-                    // Cleanup PostgreSQL container
-                    script {
-                        sh '''
-                            # Stop and remove PostgreSQL test container
-                            if docker ps -a --format "{{.Names}}" | grep -q "^postgres-e2e-test$"; then
-                                echo "Cleaning up PostgreSQL test container..."
-                                docker stop postgres-e2e-test 2>/dev/null || true
-                                docker rm postgres-e2e-test 2>/dev/null || true
-                                echo "PostgreSQL container cleaned up"
-                            fi
-                        '''
-                    }
-                    
                     // Publish JUnit test results
                     junit(
                         testResults: 'test-results/e2e/**/*.xml',

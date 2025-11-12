@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
       message: message?.trim() || ''
     };
 
-    // Store registration in PostgreSQL database
+    // Store registration in SQLite database
     const newUser = await userRepository.createUser(userData);
 
     serverDebugger.info('User registration successful', {

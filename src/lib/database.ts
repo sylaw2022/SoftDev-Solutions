@@ -1,238 +1,70 @@
-import { Pool, QueryResult } from 'pg';
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
 
-// Database connection pool
-let pool: Pool | null = null;
+// Database connection
+let db: Database.Database | null = null;
 
-// Get database connection pool
-export function getDatabase(): Pool {
-  if (!pool) {
-    // Get connection string from environment variable
-    // Format: postgresql://user:password@host:port/database
-    // For Render.com, this will be provided via DATABASE_URL
-    const connectionString = process.env.DATABASE_URL || 
-      process.env.POSTGRES_URL ||
-      'postgresql://localhost:5432/softdev_solutions';
+// Get database connection
+export function getDatabase(): Database.Database {
+  if (!db) {
+    // Get database path from environment variable or use default
+    const dbPath = process.env.DATABASE_PATH || 
+                   process.env.DATABASE_URL?.replace('sqlite://', '') ||
+                   path.join(process.cwd(), 'data', 'users.db');
 
-    // Check if this is Render.com (needs special handling)
-    const isRenderCom = connectionString.includes('render.com');
+    // Ensure data directory exists
+    const dbDir = path.dirname(dbPath);
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
+    }
 
-    // Determine SSL requirement based on connection string (Render.com requires SSL)
-    const requiresSSL = isRenderCom || 
-                        connectionString.includes('amazonaws.com') ||
-                        process.env.NODE_ENV === 'production';
+    // Open database connection
+    db = new Database(dbPath);
     
-    pool = new Pool({
-      connectionString,
-      ssl: requiresSSL ? { rejectUnauthorized: false } : false,
-      max: 20, // Maximum number of clients in the pool
-      idleTimeoutMillis: 30000,
-      // For Render.com, use longer timeout to account for database provisioning time
-      // Free plan databases can take 30-60 seconds to be ready after deployment
-      connectionTimeoutMillis: isRenderCom ? 30000 : 10000, // 30s for Render.com, 10s for others
-      // Reduce initial connection attempts to prevent AggregateError
-      min: 0, // Don't create connections until needed
-    });
+    // Enable foreign keys and WAL mode for better performance
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
 
-    // Handle pool errors
-    pool.on('error', (err: Error) => {
-      console.error('[Database] Unexpected error on idle client', err);
-    });
-
-    // Initialize database schema with retry logic (non-blocking)
-    // Don't block server startup if database isn't ready yet
-    // Schema will be initialized on first actual database operation if needed
-    // For Render.com, add a longer delay to allow database to be ready
-    const initDelay = isRenderCom ? 5000 : 1000; // 5 second delay for Render.com, 1s for others
-    
-    setTimeout(() => {
-      initializeDatabaseWithRetry().catch((err) => {
-        // Handle AggregateError specifically for better error messages
-        let errorMsg = '';
-        if (err instanceof AggregateError) {
-          errorMsg = err.errors?.map((e: Error) => e.message).join('; ') || err.message;
-          console.warn('[Database] Database initialization deferred (AggregateError):', errorMsg.substring(0, 200));
-          // Log individual errors for debugging
-          if (err.errors && err.errors.length > 0) {
-            err.errors.forEach((e: Error, index: number) => {
-              console.warn(`[Database] Error ${index + 1}: ${e.message.substring(0, 100)}`);
-            });
-          }
-        } else if (err instanceof Error) {
-          errorMsg = err.message;
-          console.warn('[Database] Database initialization deferred (will retry on first use):', errorMsg.substring(0, 200));
-        } else {
-          console.warn('[Database] Database initialization deferred:', String(err).substring(0, 200));
-        }
-        // Don't throw - allow server to start even if database isn't ready
-        // The retry logic will handle it when database operations are actually needed
-      });
-    }, initDelay);
+    // Initialize database schema
+    initializeDatabase();
   }
-  return pool;
-}
-
-// Track if database is initialized
-let dbInitialized = false;
-let initializationPromise: Promise<void> | null = null;
-
-// Initialize database schema with retry logic
-async function initializeDatabaseWithRetry(maxRetries: number = 10, initialDelayMs: number = 2000): Promise<void> {
-  // If already initialized, return immediately
-  if (dbInitialized) {
-    return;
-  }
-  
-  // If initialization is in progress, wait for it
-  if (initializationPromise) {
-    return initializationPromise;
-  }
-  
-  // Check if this is Render.com (needs more retries and longer delays)
-  const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
-  const isRenderCom = connectionString.includes('render.com');
-  const finalMaxRetries = isRenderCom ? 15 : maxRetries; // More retries for Render.com
-  const baseDelay = isRenderCom ? 3000 : initialDelayMs; // Longer base delay for Render.com
-  
-  // Start initialization
-  initializationPromise = (async () => {
-    for (let attempt = 1; attempt <= finalMaxRetries; attempt++) {
-      try {
-        // First, test the connection with a simple query
-        await testDatabaseConnection();
-        
-        // If connection test passes, initialize schema
-        await initializeDatabase();
-        dbInitialized = true;
-        initializationPromise = null;
-        console.log(`[Database] Database initialized successfully after ${attempt} attempt(s)`);
-        return; // Success, exit retry loop
-      } catch (error) {
-        // Handle AggregateError (common on Render.com when multiple connections fail)
-        let errorMessage = '';
-        let isConnectionError = false;
-        
-        if (error instanceof AggregateError) {
-          // Extract error messages from AggregateError
-          errorMessage = error.errors?.map((e: Error) => e.message).join('; ') || error.message;
-          
-          // Check if any of the errors are connection-related
-          isConnectionError = error.errors?.some((e: Error) => 
-            e.message.includes('ECONNREFUSED') ||
-            e.message.includes('connect') ||
-            e.message.includes('timeout') ||
-            e.message.includes('Connection terminated') ||
-            e.message.includes('ENOTFOUND') ||
-            e.message.includes('ETIMEDOUT') ||
-            e.message.includes('getaddrinfo') ||
-            e.message.includes('socket hang up')
-          ) || false;
-        } else if (error instanceof Error) {
-          errorMessage = error.message;
-          isConnectionError = 
-            errorMessage.includes('ECONNREFUSED') || 
-            errorMessage.includes('connect') ||
-            errorMessage.includes('timeout') ||
-            errorMessage.includes('Connection terminated') ||
-            errorMessage.includes('ENOTFOUND') ||
-            errorMessage.includes('ETIMEDOUT') ||
-            errorMessage.includes('SSL') ||
-            errorMessage.includes('certificate') ||
-            errorMessage.includes('getaddrinfo') ||
-            errorMessage.includes('socket hang up');
-        } else {
-          errorMessage = String(error);
-        }
-        
-        if (isConnectionError && attempt < finalMaxRetries) {
-          // Exponential backoff with jitter
-          const exponentialDelay = baseDelay * Math.pow(1.5, attempt - 1);
-          const jitter = Math.random() * 1000; // Add random jitter (0-1s)
-          const delayMs = Math.min(exponentialDelay + jitter, 30000); // Cap at 30 seconds
-          
-          console.log(`[Database] Connection attempt ${attempt}/${finalMaxRetries} failed: ${errorMessage.substring(0, 150)}`);
-          console.log(`[Database] Retrying in ${Math.round(delayMs)}ms...`);
-          
-          await new Promise(resolve => setTimeout(resolve, delayMs));
-          continue;
-        }
-        
-        // If not a connection error or last attempt, throw
-        initializationPromise = null;
-        
-        // Log full error details for debugging
-        if (error instanceof AggregateError) {
-          console.error('[Database] AggregateError details:', {
-            message: error.message,
-            errors: error.errors?.map((e: Error) => ({
-              message: e.message,
-              name: e.name,
-              stack: e.stack?.split('\n').slice(0, 3).join('\n')
-            }))
-          });
-        } else {
-          console.error('[Database] Initialization failed after all retries:', errorMessage);
-        }
-        
-        throw error;
-      }
-    }
-  })();
-  
-  return initializationPromise;
-}
-
-// Test database connection with a simple query
-async function testDatabaseConnection(): Promise<void> {
-  const db = getDatabase();
-  
-  try {
-    // Test connection with a simple query
-    const result = await db.query('SELECT 1 as test');
-    if (result.rows[0]?.test !== 1) {
-      throw new Error('Database connection test failed: unexpected result');
-    }
-  } catch (error) {
-    // Re-throw with more context
-    if (error instanceof Error) {
-      throw new Error(`Database connection test failed: ${error.message}`);
-    }
-    throw error;
-  }
+  return db;
 }
 
 // Initialize database schema
-async function initializeDatabase(): Promise<void> {
-  const db = getDatabase();
+function initializeDatabase(): void {
+  const database = getDatabase();
   
   try {
     // Create users table
-    await db.query(`
+    database.exec(`
       CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        first_name VARCHAR(255) NOT NULL,
-        last_name VARCHAR(255) NOT NULL,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        company VARCHAR(255) NOT NULL,
-        phone VARCHAR(50) NOT NULL,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        first_name TEXT NOT NULL,
+        last_name TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        company TEXT NOT NULL,
+        phone TEXT NOT NULL,
         message TEXT DEFAULT '',
-        email_sent BOOLEAN DEFAULT FALSE,
-        email_sent_at TIMESTAMP,
-        email_message_id VARCHAR(255),
-        admin_notification_sent BOOLEAN DEFAULT FALSE,
-        admin_notification_sent_at TIMESTAMP,
-        admin_notification_message_id VARCHAR(255),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        email_sent INTEGER DEFAULT 0,
+        email_sent_at TEXT,
+        email_message_id TEXT,
+        admin_notification_sent INTEGER DEFAULT 0,
+        admin_notification_sent_at TEXT,
+        admin_notification_message_id TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
     // Create index on email for faster lookups
-    await db.query(`
+    database.exec(`
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)
     `);
 
     // Create index on created_at for sorting
-    await db.query(`
+    database.exec(`
       CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at)
     `);
 
@@ -252,10 +84,10 @@ export interface User {
   company: string;
   phone: string;
   message: string;
-  email_sent: boolean;
+  email_sent: number; // SQLite uses INTEGER for boolean (0 or 1)
   email_sent_at: string | null;
   email_message_id: string | null;
-  admin_notification_sent: boolean;
+  admin_notification_sent: number; // SQLite uses INTEGER for boolean (0 or 1)
   admin_notification_sent_at: string | null;
   admin_notification_message_id: string | null;
   created_at: string;
@@ -273,194 +105,161 @@ export interface CreateUserData {
 
 // Database operations
 export class UserRepository {
-  private db: Pool;
+  private database: Database.Database;
 
   constructor() {
-    this.db = getDatabase();
-  }
-  
-  // Ensure database is initialized before operations
-  private async ensureInitialized(): Promise<void> {
-    try {
-      await initializeDatabaseWithRetry();
-    } catch (error) {
-      // Handle AggregateError specifically
-      if (error instanceof AggregateError) {
-        const errorMessages = error.errors?.map((e: Error) => e.message).join('; ') || error.message;
-        console.warn('[UserRepository] Database initialization check failed (AggregateError):', errorMessages.substring(0, 200));
-      } else if (error instanceof Error) {
-        console.warn('[UserRepository] Database initialization check failed:', error.message.substring(0, 200));
-      } else {
-        console.warn('[UserRepository] Database initialization check failed:', String(error).substring(0, 200));
-      }
-      // If initialization fails, log but don't block
-      // The actual query will fail with a clearer error
-    }
+    this.database = getDatabase();
   }
 
   // Create a new user
   async createUser(userData: CreateUserData): Promise<User> {
-    await this.ensureInitialized();
-    const result = await this.db.query<User>(
-      `INSERT INTO users (first_name, last_name, email, company, phone, message)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [
-        userData.firstName,
-        userData.lastName,
-        userData.email.toLowerCase().trim(),
-        userData.company,
-        userData.phone,
-        userData.message || ''
-      ]
+    const stmt = this.database.prepare(`
+      INSERT INTO users (first_name, last_name, email, company, phone, message)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    const result = stmt.run(
+      userData.firstName,
+      userData.lastName,
+      userData.email.toLowerCase().trim(),
+      userData.company,
+      userData.phone,
+      userData.message || ''
     );
 
-    return result.rows[0];
+    const user = await this.getUserById(result.lastInsertRowid as number);
+    if (!user) {
+      throw new Error('Failed to retrieve created user');
+    }
+    return user;
   }
 
   // Get user by ID
   async getUserById(id: number): Promise<User | null> {
-    const result = await this.db.query<User>(
-      'SELECT * FROM users WHERE id = $1',
-      [id]
-    );
-    return result.rows[0] || null;
+    const stmt = this.database.prepare('SELECT * FROM users WHERE id = ?');
+    const row = stmt.get(id) as User | undefined;
+    return row || null;
   }
 
   // Get user by email
   async getUserByEmail(email: string): Promise<User | null> {
-    const result = await this.db.query<User>(
-      'SELECT * FROM users WHERE email = $1',
-      [email.toLowerCase().trim()]
-    );
-    return result.rows[0] || null;
+    const stmt = this.database.prepare('SELECT * FROM users WHERE email = ?');
+    const row = stmt.get(email.toLowerCase().trim()) as User | undefined;
+    return row || null;
   }
 
   // Get all users
   async getAllUsers(limit?: number, offset?: number): Promise<User[]> {
     let query = 'SELECT * FROM users ORDER BY created_at DESC';
-    const params: number[] = [];
-    let paramIndex = 1;
+    const params: (number | string)[] = [];
 
     if (limit) {
-      query += ` LIMIT $${paramIndex}`;
+      query += ' LIMIT ?';
       params.push(limit);
-      paramIndex++;
     }
 
     if (offset) {
-      query += ` OFFSET $${paramIndex}`;
+      query += ' OFFSET ?';
       params.push(offset);
     }
 
-    const result = await this.db.query<User>(query, params);
-    return result.rows;
+    const stmt = this.database.prepare(query);
+    const rows = params.length > 0 ? stmt.all(...params) : stmt.all();
+    return rows as User[];
   }
 
   // Update user
   async updateUser(id: number, userData: Partial<CreateUserData>): Promise<User | null> {
     const fields: string[] = [];
     const values: (string | number)[] = [];
-    let paramIndex = 1;
 
     if (userData.firstName) {
-      fields.push(`first_name = $${paramIndex}`);
+      fields.push('first_name = ?');
       values.push(userData.firstName);
-      paramIndex++;
     }
     if (userData.lastName) {
-      fields.push(`last_name = $${paramIndex}`);
+      fields.push('last_name = ?');
       values.push(userData.lastName);
-      paramIndex++;
     }
     if (userData.email) {
-      fields.push(`email = $${paramIndex}`);
+      fields.push('email = ?');
       values.push(userData.email.toLowerCase().trim());
-      paramIndex++;
     }
     if (userData.company) {
-      fields.push(`company = $${paramIndex}`);
+      fields.push('company = ?');
       values.push(userData.company);
-      paramIndex++;
     }
     if (userData.phone) {
-      fields.push(`phone = $${paramIndex}`);
+      fields.push('phone = ?');
       values.push(userData.phone);
-      paramIndex++;
     }
     if (userData.message !== undefined) {
-      fields.push(`message = $${paramIndex}`);
+      fields.push('message = ?');
       values.push(userData.message);
-      paramIndex++;
     }
 
     if (fields.length === 0) {
       return this.getUserById(id);
     }
 
-    fields.push(`updated_at = CURRENT_TIMESTAMP`);
+    fields.push('updated_at = CURRENT_TIMESTAMP');
     values.push(id);
 
-    const query = `
+    const stmt = this.database.prepare(`
       UPDATE users 
       SET ${fields.join(', ')} 
-      WHERE id = $${paramIndex}
-      RETURNING *
-    `;
+      WHERE id = ?
+    `);
 
-    const result = await this.db.query<User>(query, values);
-    return result.rows[0] || null;
+    stmt.run(...values);
+    return this.getUserById(id);
   }
 
   // Delete user
   async deleteUser(id: number): Promise<boolean> {
-    const result = await this.db.query(
-      'DELETE FROM users WHERE id = $1',
-      [id]
-    );
-    return (result.rowCount || 0) > 0;
+    const stmt = this.database.prepare('DELETE FROM users WHERE id = ?');
+    const result = stmt.run(id);
+    return result.changes > 0;
   }
 
   // Get user count
   async getUserCount(): Promise<number> {
-    const result = await this.db.query<{ count: string }>(
-      'SELECT COUNT(*) as count FROM users'
-    );
-    return parseInt(result.rows[0].count, 10);
+    const stmt = this.database.prepare('SELECT COUNT(*) as count FROM users');
+    const row = stmt.get() as { count: number };
+    return row.count;
   }
 
   // Search users
   async searchUsers(searchTerm: string): Promise<User[]> {
     const searchPattern = `%${searchTerm}%`;
-    const result = await this.db.query<User>(
-      `SELECT * FROM users 
-       WHERE first_name LIKE $1 
-          OR last_name LIKE $1 
-          OR email LIKE $1 
-          OR company LIKE $1
-       ORDER BY created_at DESC`,
-      [searchPattern]
-    );
-    return result.rows;
+    const stmt = this.database.prepare(`
+      SELECT * FROM users 
+      WHERE first_name LIKE ? 
+         OR last_name LIKE ? 
+         OR email LIKE ? 
+         OR company LIKE ?
+      ORDER BY created_at DESC
+    `);
+    const rows = stmt.all(searchPattern, searchPattern, searchPattern, searchPattern);
+    return rows as User[];
   }
 
   // Get users by company
   async getUsersByCompany(company: string): Promise<User[]> {
-    const result = await this.db.query<User>(
-      'SELECT * FROM users WHERE company = $1 ORDER BY created_at DESC',
-      [company]
-    );
-    return result.rows;
+    const stmt = this.database.prepare('SELECT * FROM users WHERE company = ? ORDER BY created_at DESC');
+    const rows = stmt.all(company);
+    return rows as User[];
   }
 
   // Get recent users (last 30 days)
   async getRecentUsers(days: number = 30): Promise<User[]> {
-    const result = await this.db.query<User>(
-      `SELECT * FROM users 
-       WHERE created_at >= NOW() - INTERVAL '${days} days'
-       ORDER BY created_at DESC`
-    );
-    return result.rows;
+    const stmt = this.database.prepare(`
+      SELECT * FROM users 
+      WHERE created_at >= datetime('now', '-' || ? || ' days')
+      ORDER BY created_at DESC
+    `);
+    const rows = stmt.all(days);
+    return rows as User[];
   }
 }
 
@@ -469,9 +268,9 @@ export const userRepository = new UserRepository();
 
 // Close database connection (for cleanup)
 export async function closeDatabase(): Promise<void> {
-  if (pool) {
-    await pool.end();
-    pool = null;
+  if (db) {
+    db.close();
+    db = null;
   }
 }
 
