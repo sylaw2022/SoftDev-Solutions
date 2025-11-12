@@ -221,16 +221,28 @@ pipeline {
         }
         failure {
             echo 'Pipeline failed! ❌'
-            emailext(
-                subject: "Pipeline Failed: ${env.JOB_NAME} - ${env.BUILD_NUMBER}",
-                body: """
-                    Pipeline execution failed for:
-                    - Branch: ${env.GIT_BRANCH_NAME}
-                    - Commit: ${env.GIT_COMMIT_SHORT}
-                    - Build: ${env.BUILD_URL}
-                """,
-                to: "${env.CHANGE_AUTHOR_EMAIL ?: 'devops@softdev-solutions.com'}"
-            )
+            script {
+                try {
+                    // Try to send email notification if mail plugin is available
+                    def recipient = env.CHANGE_AUTHOR_EMAIL ?: 'devops@softdev-solutions.com'
+                    mail(
+                        to: recipient,
+                        subject: "Pipeline Failed: ${env.JOB_NAME} - ${env.BUILD_NUMBER}",
+                        body: """
+                            Pipeline execution failed for:
+                            - Branch: ${env.GIT_BRANCH_NAME}
+                            - Commit: ${env.GIT_COMMIT_SHORT}
+                            - Build: ${env.BUILD_URL}
+                        """
+                    )
+                } catch (Exception e) {
+                    echo "Email notification not available: ${e.message}"
+                    echo "Pipeline failed details:"
+                    echo "  - Branch: ${env.GIT_BRANCH_NAME}"
+                    echo "  - Commit: ${env.GIT_COMMIT_SHORT}"
+                    echo "  - Build: ${env.BUILD_URL}"
+                }
+            }
         }
         unstable {
             echo 'Pipeline is unstable ⚠️'
