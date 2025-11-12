@@ -117,7 +117,7 @@ pipeline {
                 always {
                     // Publish JUnit test results
                     junit(
-                        testResultsPattern: 'test-results/jest/**/*.xml',
+                        testResults: 'test-results/jest/**/*.xml',
                         allowEmptyResults: true
                     )
                     // Publish coverage HTML report
@@ -169,7 +169,7 @@ pipeline {
                 always {
                     // Publish JUnit test results
                     junit(
-                        testResultsPattern: 'test-results/e2e/**/*.xml',
+                        testResults: 'test-results/e2e/**/*.xml',
                         allowEmptyResults: true
                     )
                     script {
