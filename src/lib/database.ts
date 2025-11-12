@@ -1,63 +1,80 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
+import { Pool, QueryResult } from 'pg';
 
-// Database file path
-const DB_PATH = path.join(process.cwd(), 'data', 'users.db');
+// Database connection pool
+let pool: Pool | null = null;
 
-// Ensure data directory exists
-const dataDir = path.dirname(DB_PATH);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
+// Get database connection pool
+export function getDatabase(): Pool {
+  if (!pool) {
+    // Get connection string from environment variable
+    // Format: postgresql://user:password@host:port/database
+    // For Render.com, this will be provided via DATABASE_URL
+    const connectionString = process.env.DATABASE_URL || 
+      process.env.POSTGRES_URL ||
+      'postgresql://localhost:5432/softdev_solutions';
 
-// Database instance
-let db: Database.Database | null = null;
+    pool = new Pool({
+      connectionString,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      max: 20, // Maximum number of clients in the pool
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
+    });
 
-export function getDatabase(): Database.Database {
-  if (!db) {
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    initializeDatabase(db);
+    // Handle pool errors
+    pool.on('error', (err: Error) => {
+      console.error('[Database] Unexpected error on idle client', err);
+    });
+
+    // Initialize database schema
+    initializeDatabase().catch((err) => {
+      console.error('[Database] Failed to initialize database:', err);
+    });
   }
-  return db;
+  return pool;
 }
 
 // Initialize database schema
-function initializeDatabase(database: Database.Database) {
-  // Create users table
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      first_name TEXT NOT NULL,
-      last_name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      company TEXT NOT NULL,
-      phone TEXT NOT NULL,
-      message TEXT DEFAULT '',
-      email_sent BOOLEAN DEFAULT FALSE,
-      email_sent_at DATETIME,
-      email_message_id TEXT,
-      admin_notification_sent BOOLEAN DEFAULT FALSE,
-      admin_notification_sent_at DATETIME,
-      admin_notification_message_id TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+async function initializeDatabase(): Promise<void> {
+  const db = getDatabase();
+  
+  try {
+    // Create users table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        first_name VARCHAR(255) NOT NULL,
+        last_name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        company VARCHAR(255) NOT NULL,
+        phone VARCHAR(50) NOT NULL,
+        message TEXT DEFAULT '',
+        email_sent BOOLEAN DEFAULT FALSE,
+        email_sent_at TIMESTAMP,
+        email_message_id VARCHAR(255),
+        admin_notification_sent BOOLEAN DEFAULT FALSE,
+        admin_notification_sent_at TIMESTAMP,
+        admin_notification_message_id VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-  // Create index on email for faster lookups
-  database.exec(`
-    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)
-  `);
+    // Create index on email for faster lookups
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)
+    `);
 
-  // Create index on created_at for sorting
-  database.exec(`
-    CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at)
-  `);
+    // Create index on created_at for sorting
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at)
+    `);
 
-  console.log('[Database] Database initialized successfully');
+    console.log('[Database] Database initialized successfully');
+  } catch (error) {
+    console.error('[Database] Error initializing database:', error);
+    throw error;
+  }
 }
 
 // User interface
@@ -90,171 +107,192 @@ export interface CreateUserData {
 
 // Database operations
 export class UserRepository {
-  private db: Database.Database;
+  private db: Pool;
 
   constructor() {
     this.db = getDatabase();
   }
 
   // Create a new user
-  createUser(userData: CreateUserData): User {
-    const stmt = this.db.prepare(`
-      INSERT INTO users (first_name, last_name, email, company, phone, message)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-
-    const result = stmt.run(
-      userData.firstName,
-      userData.lastName,
-      userData.email.toLowerCase().trim(),
-      userData.company,
-      userData.phone,
-      userData.message || ''
+  async createUser(userData: CreateUserData): Promise<User> {
+    const result = await this.db.query<User>(
+      `INSERT INTO users (first_name, last_name, email, company, phone, message)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [
+        userData.firstName,
+        userData.lastName,
+        userData.email.toLowerCase().trim(),
+        userData.company,
+        userData.phone,
+        userData.message || ''
+      ]
     );
 
-    return this.getUserById(result.lastInsertRowid as number)!;
+    return result.rows[0];
   }
 
   // Get user by ID
-  getUserById(id: number): User | null {
-    const stmt = this.db.prepare('SELECT * FROM users WHERE id = ?');
-    return stmt.get(id) as User | null;
+  async getUserById(id: number): Promise<User | null> {
+    const result = await this.db.query<User>(
+      'SELECT * FROM users WHERE id = $1',
+      [id]
+    );
+    return result.rows[0] || null;
   }
 
   // Get user by email
-  getUserByEmail(email: string): User | null {
-    const stmt = this.db.prepare('SELECT * FROM users WHERE email = ?');
-    return stmt.get(email.toLowerCase().trim()) as User | null;
+  async getUserByEmail(email: string): Promise<User | null> {
+    const result = await this.db.query<User>(
+      'SELECT * FROM users WHERE email = $1',
+      [email.toLowerCase().trim()]
+    );
+    return result.rows[0] || null;
   }
 
   // Get all users
-  getAllUsers(limit?: number, offset?: number): User[] {
+  async getAllUsers(limit?: number, offset?: number): Promise<User[]> {
     let query = 'SELECT * FROM users ORDER BY created_at DESC';
-    const params: (number | string)[] = [];
+    const params: number[] = [];
+    let paramIndex = 1;
 
     if (limit) {
-      query += ' LIMIT ?';
+      query += ` LIMIT $${paramIndex}`;
       params.push(limit);
+      paramIndex++;
     }
 
     if (offset) {
-      query += ' OFFSET ?';
+      query += ` OFFSET $${paramIndex}`;
       params.push(offset);
     }
 
-    const stmt = this.db.prepare(query);
-    return stmt.all(...params) as User[];
+    const result = await this.db.query<User>(query, params);
+    return result.rows;
   }
 
   // Update user
-  updateUser(id: number, userData: Partial<CreateUserData>): User | null {
+  async updateUser(id: number, userData: Partial<CreateUserData>): Promise<User | null> {
     const fields: string[] = [];
     const values: (string | number)[] = [];
+    let paramIndex = 1;
 
     if (userData.firstName) {
-      fields.push('first_name = ?');
+      fields.push(`first_name = $${paramIndex}`);
       values.push(userData.firstName);
+      paramIndex++;
     }
     if (userData.lastName) {
-      fields.push('last_name = ?');
+      fields.push(`last_name = $${paramIndex}`);
       values.push(userData.lastName);
+      paramIndex++;
     }
     if (userData.email) {
-      fields.push('email = ?');
+      fields.push(`email = $${paramIndex}`);
       values.push(userData.email.toLowerCase().trim());
+      paramIndex++;
     }
     if (userData.company) {
-      fields.push('company = ?');
+      fields.push(`company = $${paramIndex}`);
       values.push(userData.company);
+      paramIndex++;
     }
     if (userData.phone) {
-      fields.push('phone = ?');
+      fields.push(`phone = $${paramIndex}`);
       values.push(userData.phone);
+      paramIndex++;
     }
     if (userData.message !== undefined) {
-      fields.push('message = ?');
+      fields.push(`message = $${paramIndex}`);
       values.push(userData.message);
+      paramIndex++;
     }
 
     if (fields.length === 0) {
       return this.getUserById(id);
     }
 
-    fields.push('updated_at = CURRENT_TIMESTAMP');
+    fields.push(`updated_at = CURRENT_TIMESTAMP`);
     values.push(id);
 
-    const stmt = this.db.prepare(`
+    const query = `
       UPDATE users 
       SET ${fields.join(', ')} 
-      WHERE id = ?
-    `);
+      WHERE id = $${paramIndex}
+      RETURNING *
+    `;
 
-    stmt.run(...values);
-    return this.getUserById(id);
+    const result = await this.db.query<User>(query, values);
+    return result.rows[0] || null;
   }
 
   // Delete user
-  deleteUser(id: number): boolean {
-    const stmt = this.db.prepare('DELETE FROM users WHERE id = ?');
-    const result = stmt.run(id);
-    return result.changes > 0;
+  async deleteUser(id: number): Promise<boolean> {
+    const result = await this.db.query(
+      'DELETE FROM users WHERE id = $1',
+      [id]
+    );
+    return (result.rowCount || 0) > 0;
   }
 
   // Get user count
-  getUserCount(): number {
-    const stmt = this.db.prepare('SELECT COUNT(*) as count FROM users');
-    const result = stmt.get() as { count: number };
-    return result.count;
+  async getUserCount(): Promise<number> {
+    const result = await this.db.query<{ count: string }>(
+      'SELECT COUNT(*) as count FROM users'
+    );
+    return parseInt(result.rows[0].count, 10);
   }
 
   // Search users
-  searchUsers(searchTerm: string): User[] {
-    const stmt = this.db.prepare(`
-      SELECT * FROM users 
-      WHERE first_name LIKE ? 
-         OR last_name LIKE ? 
-         OR email LIKE ? 
-         OR company LIKE ?
-      ORDER BY created_at DESC
-    `);
-
+  async searchUsers(searchTerm: string): Promise<User[]> {
     const searchPattern = `%${searchTerm}%`;
-    return stmt.all(searchPattern, searchPattern, searchPattern, searchPattern) as User[];
+    const result = await this.db.query<User>(
+      `SELECT * FROM users 
+       WHERE first_name LIKE $1 
+          OR last_name LIKE $1 
+          OR email LIKE $1 
+          OR company LIKE $1
+       ORDER BY created_at DESC`,
+      [searchPattern]
+    );
+    return result.rows;
   }
 
   // Get users by company
-  getUsersByCompany(company: string): User[] {
-    const stmt = this.db.prepare('SELECT * FROM users WHERE company = ? ORDER BY created_at DESC');
-    return stmt.all(company) as User[];
+  async getUsersByCompany(company: string): Promise<User[]> {
+    const result = await this.db.query<User>(
+      'SELECT * FROM users WHERE company = $1 ORDER BY created_at DESC',
+      [company]
+    );
+    return result.rows;
   }
 
   // Get recent users (last 30 days)
-  getRecentUsers(days: number = 30): User[] {
-    const stmt = this.db.prepare(`
-      SELECT * FROM users 
-      WHERE created_at >= datetime('now', '-${days} days')
-      ORDER BY created_at DESC
-    `);
-    return stmt.all() as User[];
+  async getRecentUsers(days: number = 30): Promise<User[]> {
+    const result = await this.db.query<User>(
+      `SELECT * FROM users 
+       WHERE created_at >= NOW() - INTERVAL '${days} days'
+       ORDER BY created_at DESC`
+    );
+    return result.rows;
   }
-
 }
 
 // Export singleton instance
 export const userRepository = new UserRepository();
 
 // Close database connection (for cleanup)
-export function closeDatabase() {
-  if (db) {
-    db.close();
-    db = null;
+export async function closeDatabase(): Promise<void> {
+  if (pool) {
+    await pool.end();
+    pool = null;
   }
 }
 
 // Database health check
-export function checkDatabaseHealth(): { status: string; message: string; userCount: number } {
+export async function checkDatabaseHealth(): Promise<{ status: string; message: string; userCount: number }> {
   try {
-    const count = userRepository.getUserCount();
+    const count = await userRepository.getUserCount();
     return {
       status: 'healthy',
       message: 'Database connection successful',

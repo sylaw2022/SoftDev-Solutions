@@ -2,7 +2,7 @@
 import { getDatabase, checkDatabaseHealth } from '@/lib/database';
 
 // Initialize database on application startup
-export function initializeApp() {
+export async function initializeApp(): Promise<boolean> {
   try {
     console.log('[Init] Initializing application...');
     
@@ -11,7 +11,7 @@ export function initializeApp() {
     console.log('[Init] Database initialized successfully');
     
     // Check database health
-    const health = checkDatabaseHealth();
+    const health = await checkDatabaseHealth();
     console.log('[Init] Database health check:', health);
     
     return true;
@@ -23,5 +23,5 @@ export function initializeApp() {
 
 // Run initialization if this file is executed directly
 if (require.main === module) {
-  initializeApp();
+  initializeApp().catch(console.error);
 }

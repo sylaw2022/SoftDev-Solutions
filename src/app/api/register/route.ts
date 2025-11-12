@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
 
     // Check if email already exists
-    const existingUser = userRepository.getUserByEmail(email);
+    const existingUser = await userRepository.getUserByEmail(email);
     if (existingUser) {
       serverDebugger.warn('Registration failed - email already exists', { email }, debugContext);
       return NextResponse.json(
@@ -50,14 +50,14 @@ export async function POST(request: NextRequest) {
       message: message?.trim() || ''
     };
 
-    // Store registration in SQLite database
-    const newUser = userRepository.createUser(userData);
+    // Store registration in PostgreSQL database
+    const newUser = await userRepository.createUser(userData);
 
     serverDebugger.info('User registration successful', {
       userId: newUser.id,
       email: newUser.email,
       company: newUser.company,
-      totalRegistrations: userRepository.getUserCount()
+      totalRegistrations: await userRepository.getUserCount()
     }, debugContext);
 
 
@@ -109,17 +109,17 @@ export async function GET(request: NextRequest) {
     let users;
     
     if (search) {
-      users = userRepository.searchUsers(search);
+      users = await userRepository.searchUsers(search);
     } else if (company) {
-      users = userRepository.getUsersByCompany(company);
+      users = await userRepository.getUsersByCompany(company);
     } else {
-      users = userRepository.getAllUsers(
+      users = await userRepository.getAllUsers(
         limit ? parseInt(limit) : undefined,
         offset ? parseInt(offset) : undefined
       );
     }
     
-    const totalCount = userRepository.getUserCount();
+    const totalCount = await userRepository.getUserCount();
     
     return NextResponse.json({
       users: users.map(user => ({
@@ -143,6 +143,61 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       { error: 'Failed to retrieve registrations' },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE endpoint to delete a user by ID
+export async function DELETE(request: NextRequest) {
+  const debugContext = serverDebugger.middleware(request);
+  
+  try {
+    const url = new URL(request.url);
+    const userId = url.searchParams.get('id');
+    
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'User ID is required' },
+        { status: 400 }
+      );
+    }
+    
+    const userIdNum = parseInt(userId, 10);
+    if (isNaN(userIdNum)) {
+      return NextResponse.json(
+        { error: 'Invalid user ID' },
+        { status: 400 }
+      );
+    }
+    
+    serverDebugger.info('User deletion requested', { userId: userIdNum }, debugContext);
+    
+    const deleted = await userRepository.deleteUser(userIdNum);
+    
+    if (!deleted) {
+      serverDebugger.warn('User deletion failed - user not found', { userId: userIdNum }, debugContext);
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
+    
+    serverDebugger.info('User deleted successfully', { userId: userIdNum }, debugContext);
+    
+    return NextResponse.json({
+      success: true,
+      message: 'User deleted successfully',
+      userId: userIdNum
+    });
+  } catch (error) {
+    serverDebugger.error('User deletion failed', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined
+    }, debugContext);
+
+    return NextResponse.json(
+      { error: 'Internal server error. Please try again later.' },
       { status: 500 }
     );
   }

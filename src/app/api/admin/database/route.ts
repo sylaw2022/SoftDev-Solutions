@@ -7,7 +7,7 @@ export async function GET() {
   try {
     serverDebugger.info('Database health check requested');
     
-    const health = checkDatabaseHealth();
+    const health = await checkDatabaseHealth();
     
     return NextResponse.json({
       ...health,
@@ -39,8 +39,8 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'stats':
-        const totalUsers = userRepository.getUserCount();
-        const recentUsers = userRepository.getRecentUsers(30);
+        const totalUsers = await userRepository.getUserCount();
+        const recentUsers = await userRepository.getRecentUsers(30);
         
         return NextResponse.json({
           totalUsers,
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
 
       case 'recent':
         const days = body.days || 30;
-        const recent = userRepository.getRecentUsers(days);
+        const recent = await userRepository.getRecentUsers(days);
         
         return NextResponse.json({
           users: recent.map(user => ({
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
           );
         }
         
-        const searchResults = userRepository.searchUsers(searchTerm);
+        const searchResults = await userRepository.searchUsers(searchTerm);
         
         return NextResponse.json({
           users: searchResults.map(user => ({
@@ -94,15 +94,42 @@ export async function POST(request: NextRequest) {
         });
 
       case 'companies':
-        const allUsers = userRepository.getAllUsers();
+        const allUsers = await userRepository.getAllUsers();
         const companies = [...new Set(allUsers.map(user => user.company))];
         
+        const companyCounts = await Promise.all(
+          companies.map(async (company) => {
+            const users = await userRepository.getUsersByCompany(company);
+            return { name: company, count: users.length };
+          })
+        );
+        
         return NextResponse.json({
-          companies: companies.map(company => ({
-            name: company,
-            count: userRepository.getUsersByCompany(company).length
-          })),
+          companies: companyCounts,
           totalCompanies: companies.length
+        });
+
+      case 'delete':
+        const userId = body.userId;
+        if (!userId) {
+          return NextResponse.json(
+            { error: 'User ID is required' },
+            { status: 400 }
+          );
+        }
+        
+        const deleted = await userRepository.deleteUser(userId);
+        if (!deleted) {
+          return NextResponse.json(
+            { error: 'User not found' },
+            { status: 404 }
+          );
+        }
+        
+        return NextResponse.json({
+          success: true,
+          message: 'User deleted successfully',
+          userId
         });
 
       default:
