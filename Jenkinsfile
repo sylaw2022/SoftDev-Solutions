@@ -115,7 +115,8 @@ pipeline {
             }
             post {
                 always {
-                    publishTestResults(
+                    // Publish JUnit test results
+                    junit(
                         testResultsPattern: 'test-results/jest/**/*.xml',
                         allowEmptyResults: true
                     )
@@ -166,7 +167,8 @@ pipeline {
             }
             post {
                 always {
-                    publishTestResults(
+                    // Publish JUnit test results
+                    junit(
                         testResultsPattern: 'test-results/e2e/**/*.xml',
                         allowEmptyResults: true
                     )
