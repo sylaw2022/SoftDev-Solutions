@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: softdev-solutions-website
+    env: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 20
+      - key: CI
+        value: false
+    healthCheckPath: /
+    autoDeploy: true
+    branch: main
+    region: singapore
+    # Note: SQLite database files in data/ directory will persist on the service
+    # For production use, consider migrating to PostgreSQL for better reliability
+
+
