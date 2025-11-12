@@ -7,7 +7,7 @@ test.describe('Contact Page', () => {
 
   test('should load contact page successfully', async ({ page }) => {
     await expect(page).toHaveURL(/\/contact/);
-    await expect(page.getByRole('heading', { name: /contact us/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /get in touch/i })).toBeVisible();
   });
 
   test('should display contact form', async ({ page }) => {

@@ -7,8 +7,8 @@ test.describe('Home Page', () => {
     // Check page title
     await expect(page).toHaveTitle(/SoftDev Solutions/i);
     
-    // Check main heading
-    await expect(page.getByRole('heading', { name: /transform your business/i })).toBeVisible();
+    // Check main heading (use first() since there are multiple headings with similar text)
+    await expect(page.getByRole('heading', { name: /transform your business/i }).first()).toBeVisible();
   });
 
   test('should display all service cards', async ({ page }) => {
@@ -63,7 +63,7 @@ test.describe('Home Page', () => {
     
     // Check that mobile menu button is visible (if it exists)
     // Main content should still be visible
-    await expect(page.getByRole('heading', { name: /transform your business/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /transform your business/i }).first()).toBeVisible();
   });
 });
 
