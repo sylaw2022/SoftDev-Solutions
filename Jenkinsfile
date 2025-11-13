@@ -271,6 +271,40 @@ pipeline {
                     echo 'Main branch build succeeded - ready for deployment'
                 }
             }
+            // Send success email notification
+            script {
+                try {
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✅ Build Success: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Build Successful! ✅
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Commit: ${env.GIT_COMMIT_SHORT}
+Duration: ${currentBuild.durationString}
+Status: SUCCESS
+
+Build Stages Completed:
+  ✓ Checkout
+  ✓ Setup Node.js
+  ✓ Install Dependencies
+  ✓ Lint
+  ✓ Unit Tests
+  ✓ Build
+  ✓ E2E Tests
+  ✓ Security Scan
+
+View Build Details: ${env.BUILD_URL}
+View Console Output: ${env.BUILD_URL}console
+                        """
+                    )
+                } catch (Exception e) {
+                    echo "Email notification failed: ${e.message}"
+                }
+            }
         }
         failure {
             echo 'Pipeline failed! ❌'
@@ -280,10 +314,63 @@ pipeline {
             echo "  - Build: ${env.BUILD_URL}"
             echo "  - Job: ${env.JOB_NAME}"
             echo "  - Build Number: ${env.BUILD_NUMBER}"
-            // Email notifications can be configured via Jenkins notification plugins if needed
+            // Send failure email notification
+            script {
+                try {
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "❌ Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Build Failed! ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Commit: ${env.GIT_COMMIT_SHORT}
+Duration: ${currentBuild.durationString}
+Status: FAILED
+
+Failed Stage:
+Check console output for detailed error information.
+
+View Build Details: ${env.BUILD_URL}
+View Console Output: ${env.BUILD_URL}console
+View Test Results: ${env.BUILD_URL}testReport
+                        """
+                    )
+                } catch (Exception e) {
+                    echo "Email notification failed: ${e.message}"
+                }
+            }
         }
         unstable {
             echo 'Pipeline is unstable ⚠️'
+            // Send unstable email notification
+            script {
+                try {
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "⚠️ Build Unstable: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Build Unstable ⚠️
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Commit: ${env.GIT_COMMIT_SHORT}
+Duration: ${currentBuild.durationString}
+Status: UNSTABLE
+
+Build completed but some tests failed or warnings were generated.
+
+View Build Details: ${env.BUILD_URL}
+View Test Results: ${env.BUILD_URL}testReport
+                        """
+                    )
+                } catch (Exception e) {
+                    echo "Email notification failed: ${e.message}"
+                }
+            }
         }
     }
 }
