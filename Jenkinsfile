@@ -475,63 +475,366 @@ View Build: ${env.BUILD_URL}console
                     echo "User: postgres"
                     echo "Host: localhost:5433"
                     
-                    // Verify build exists before running E2E tests
-                    echo 'Verifying build artifacts exist...'
-                    def buildExists = fileExists('.next/BUILD_ID')
-                    if (!buildExists) {
-                        error('Build artifacts not found! Please ensure Build stage completed successfully.')
+                    def serverStartError = null
+                    def testError = null
+                    def anyError = null
+                    
+                    try {
+                        // Verify build exists before running E2E tests
+                        echo 'Verifying build artifacts exist...'
+                        def buildExists = fileExists('.next/BUILD_ID')
+                        if (!buildExists) {
+                            serverStartError = 'Build artifacts not found! Please ensure Build stage completed successfully.'
+                            error(serverStartError)
+                        }
+                        echo '✓ Build artifacts verified'
+                        
+                        // Check if port 3000 is available
+                        echo 'Checking if port 3000 is available...'
+                        sh '''
+                            # Kill any process using port 3000
+                            lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+                            sleep 2
+                            echo "Port 3000 is available"
+                        '''
+                        
+                        // Test server startup with timeout
+                        echo 'Testing frontend server startup...'
+                        def serverStarted = false
+                        def serverStartTimeout = 180 // 3 minutes
+                        def startTime = System.currentTimeMillis()
+                        
+                        try {
+                            // Start server in background to test if it can start
+                            def serverProcess = sh(
+                                script: '''
+                                    export CI=true
+                                    export NODE_ENV=test
+                                    export DATABASE_URL="${DATABASE_URL}"
+                                    timeout ${SERVER_START_TIMEOUT} npm run start > /tmp/server-start.log 2>&1 &
+                                    echo $!
+                                '''.replace('${SERVER_START_TIMEOUT}', serverStartTimeout.toString())
+                                    .replace('${DATABASE_URL}', env.DATABASE_URL),
+                                returnStdout: true
+                            ).trim()
+                            
+                            // Wait for server to be ready
+                            def maxWaitTime = serverStartTimeout * 1000 // Convert to milliseconds
+                            def checkInterval = 2000 // Check every 2 seconds
+                            def waited = 0
+                            
+                            while (waited < maxWaitTime) {
+                                sleep(checkInterval / 1000)
+                                waited += checkInterval
+                                
+                                // Check if process is still running first
+                                def processRunning = sh(
+                                    script: "ps -p ${serverProcess} > /dev/null 2>&1 && echo 'running' || echo 'stopped'",
+                                    returnStdout: true
+                                ).trim()
+                                
+                                if (processRunning != 'running') {
+                                    // Process stopped, check logs for errors
+                                    def errorLog = sh(
+                                        script: 'tail -50 /tmp/server-start.log 2>/dev/null || echo "No log file"',
+                                        returnStdout: true
+                                    )
+                                    serverStartError = "Server process stopped unexpectedly. Logs:\n${errorLog}"
+                                    break
+                                }
+                                
+                                // Check if server is responding (with aggressive timeout to prevent hanging)
+                                def serverResponse = "000"
+                                try {
+                                    // Use background process with guaranteed kill to prevent hanging
+                                    def curlScript = '''
+                                        # Start curl in background and capture PID
+                                        # Write HTTP code to file, discard body
+                                        curl -s -o /dev/null -w "%{http_code}" \
+                                            --max-time 3 \
+                                            --connect-timeout 2 \
+                                            --retry 0 \
+                                            http://localhost:3000 > /tmp/curl-response.txt 2>/dev/null &
+                                        CURL_PID=$!
+                                        
+                                        # Wait max 4 seconds, then kill if still running
+                                        for i in {1..4}; do
+                                            if ! kill -0 $CURL_PID 2>/dev/null; then
+                                                # Process finished
+                                                break
+                                            fi
+                                            sleep 1
+                                        done
+                                        
+                                        # Kill if still running (guaranteed timeout)
+                                        kill -9 $CURL_PID 2>/dev/null || true
+                                        wait $CURL_PID 2>/dev/null || true
+                                        
+                                        # Read response if available
+                                        if [ -f /tmp/curl-response.txt ]; then
+                                            cat /tmp/curl-response.txt
+                                        else
+                                            echo "000"
+                                        fi
+                                    '''
+                                    
+                                    serverResponse = sh(
+                                        script: curlScript,
+                                        returnStdout: true,
+                                        timeout: 5 // Jenkins-level timeout as final safety net
+                                    ).trim()
+                                    
+                                    // Clean up temp file
+                                    sh 'rm -f /tmp/curl-response.txt 2>/dev/null || true'
+                                    
+                                    // If we got nothing or it's still hanging, force to "000"
+                                    if (serverResponse == null || serverResponse.isEmpty() || serverResponse.length() > 3) {
+                                        serverResponse = "000"
+                                    }
+                                } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+                                    echo "Health check interrupted (timeout): ${e.message}"
+                                    serverResponse = "000"
+                                } catch (Exception e) {
+                                    echo "Health check failed (non-critical): ${e.message}"
+                                    serverResponse = "000"
+                                } catch (Throwable t) {
+                                    echo "Health check error (non-critical): ${t.message}"
+                                    serverResponse = "000"
+                                }
+                                
+                                if (serverResponse == '200' || serverResponse == '404' || serverResponse == '500') {
+                                    serverStarted = true
+                                    echo "✓ Frontend server started successfully (HTTP ${serverResponse})"
+                                    // Kill the test server
+                                    sh "kill ${serverProcess} 2>/dev/null || true"
+                                    sleep(2)
+                                    break
+                                }
+                                
+                                echo "Waiting for server to start... (${waited / 1000}s / ${serverStartTimeout}s) - Response: ${serverResponse}"
+                            }
+                            
+                            if (!serverStarted && serverStartError == null) {
+                                serverStartError = "Server startup timeout after ${serverStartTimeout} seconds. Server did not respond on http://localhost:3000"
+                            }
+                            
+                        } catch (Exception e) {
+                            serverStartError = "Server startup test failed: ${e.getMessage()}"
+                        }
+                        
+                        if (serverStartError) {
+                            // Send email notification for server startup failure
+                            echo "ERROR: ${serverStartError}"
+                            mail (
+                                to: "groklord2@gmail.com",
+                                subject: "❌ E2E Tests: Frontend Server Startup Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                                body: """
+E2E Tests Stage - Frontend Server Startup Failed ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Commit: ${env.GIT_COMMIT_SHORT}
+Status: SERVER STARTUP FAILED
+
+Error Details:
+${serverStartError}
+
+Possible Causes:
+- Build artifacts missing or corrupted
+- Port 3000 already in use
+- Database connection failed
+- Insufficient memory or resources
+- Node.js process crashed during startup
+
+View Build: ${env.BUILD_URL}console
+Check Logs: ${env.BUILD_URL}consoleText
+
+Troubleshooting Steps:
+1. Verify Build stage completed successfully
+2. Check if port 3000 is available
+3. Verify PostgreSQL database is running and accessible
+4. Check server logs in console output
+5. Verify DATABASE_URL is correctly set
+                                """
+                            )
+                            error(serverStartError)
+                        }
+                        
+                        // Run E2E tests if server started successfully
+                        echo 'Frontend server verified. Running E2E tests...'
+                        sh '''
+                            # Set CI environment variable for Playwright
+                            export CI=true
+                            export NODE_ENV=test
+                            
+                            # Set base URL for tests
+                            export PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
+                            
+                            # Export DATABASE_URL for the application
+                            export DATABASE_URL="${DATABASE_URL}"
+                            echo "Environment variables set:"
+                            echo "  CI=${CI}"
+                            echo "  NODE_ENV=${NODE_ENV}"
+                            echo "  DATABASE_URL=${DATABASE_URL}"
+                            echo "  PLAYWRIGHT_TEST_BASE_URL=${PLAYWRIGHT_TEST_BASE_URL}"
+                            
+                            # Verify .next directory exists
+                            if [ ! -d ".next" ]; then
+                                echo "ERROR: .next directory not found!"
+                                echo "Build must complete before E2E tests can run."
+                                exit 1
+                            fi
+                            
+                            echo "✓ Build directory verified"
+                            
+                            # Run E2E tests (Playwright handles server lifecycle)
+                            # Playwright will start the server using npm run start
+                            # DATABASE_URL will be available to the webServer process via playwright.config.ts
+                            npm run test:e2e
+                        '''
+                        
+                    } catch (Exception e) {
+                        testError = e.getMessage()
+                        anyError = e
+                        echo "ERROR during E2E tests: ${testError}"
+                        
+                        // Get stack trace for better debugging
+                        def stackTrace = ""
+                        try {
+                            def writer = new StringWriter()
+                            def printer = new PrintWriter(writer)
+                            e.printStackTrace(printer)
+                            stackTrace = writer.toString()
+                        } catch (Exception st) {
+                            stackTrace = "Could not retrieve stack trace: ${st.message}"
+                        }
+                        
+                        // Send email notification for test execution failure
+                        mail (
+                            to: "groklord2@gmail.com",
+                            subject: "❌ E2E Tests: Execution Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                            body: """
+E2E Tests Stage - Test Execution Failed ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Commit: ${env.GIT_COMMIT_SHORT}
+Status: TEST EXECUTION FAILED
+
+Error Details:
+${testError}
+
+${serverStartError ? "Server Startup Error:\n${serverStartError}\n\n" : ""}
+
+Stack Trace:
+${stackTrace}
+
+View Build: ${env.BUILD_URL}console
+View Test Results: ${env.BUILD_URL}testReport
+Check Logs: ${env.BUILD_URL}consoleText
+                            """
+                        )
+                        throw e
+                    } catch (Throwable t) {
+                        // Catch-all for any unexpected errors
+                        anyError = t
+                        def errorMessage = t.getMessage() ?: "Unknown error occurred"
+                        def errorClass = t.getClass().getName()
+                        
+                        echo "CRITICAL ERROR in E2E Tests stage: ${errorMessage}"
+                        echo "Error class: ${errorClass}"
+                        
+                        // Get stack trace
+                        def stackTrace = ""
+                        try {
+                            def writer = new StringWriter()
+                            def printer = new PrintWriter(writer)
+                            t.printStackTrace(printer)
+                            stackTrace = writer.toString()
+                        } catch (Exception st) {
+                            stackTrace = "Could not retrieve stack trace: ${st.message}"
+                        }
+                        
+                        // Send email notification for any error
+                        mail (
+                            to: "groklord2@gmail.com",
+                            subject: "❌ E2E Tests: Critical Error - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                            body: """
+E2E Tests Stage - Critical Error ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Commit: ${env.GIT_COMMIT_SHORT}
+Status: CRITICAL ERROR
+
+Error Type: ${errorClass}
+Error Message: ${errorMessage}
+
+${serverStartError ? "Server Startup Error:\n${serverStartError}\n\n" : ""}
+${testError ? "Test Execution Error:\n${testError}\n\n" : ""}
+
+Stack Trace:
+${stackTrace}
+
+This is a catch-all error handler. The pipeline encountered an unexpected error.
+
+View Build: ${env.BUILD_URL}console
+Check Logs: ${env.BUILD_URL}consoleText
+                            """
+                        )
+                        throw t
                     }
-                    echo '✓ Build artifacts verified'
-                    
-                    // Check if port 3000 is available
-                    echo 'Checking if port 3000 is available...'
-                    sh '''
-                        # Kill any process using port 3000
-                        lsof -ti:3000 | xargs kill -9 2>/dev/null || true
-                        sleep 2
-                        echo "Port 3000 is available"
-                    '''
-                    
-                    sh '''
-                        # Set CI environment variable for Playwright
-                        export CI=true
-                        export NODE_ENV=test
-                        
-                        # Set base URL for tests
-                        export PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
-                        
-                        # Export DATABASE_URL for the application
-                        export DATABASE_URL="${DATABASE_URL}"
-                        echo "Environment variables set:"
-                        echo "  CI=${CI}"
-                        echo "  NODE_ENV=${NODE_ENV}"
-                        echo "  DATABASE_URL=${DATABASE_URL}"
-                        echo "  PLAYWRIGHT_TEST_BASE_URL=${PLAYWRIGHT_TEST_BASE_URL}"
-                        
-                        # Verify .next directory exists
-                        if [ ! -d ".next" ]; then
-                            echo "ERROR: .next directory not found!"
-                            echo "Build must complete before E2E tests can run."
-                            exit 1
-                        fi
-                        
-                        echo "✓ Build directory verified"
-                        
-                        # Run E2E tests (Playwright handles server lifecycle)
-                        # Playwright will start the server using npm run start
-                        # DATABASE_URL will be available to the webServer process via playwright.config.ts
-                        npm run test:e2e
-                    '''
                 }
             }
             post {
                 always {
-                    // Publish JUnit test results
-                    junit(
-                        testResults: 'test-results/e2e/**/*.xml',
-                        allowEmptyResults: true
-                    )
                     script {
+                        try {
+                            // Clean up any running server processes
+                            sh '''
+                                # Kill any Node.js processes on port 3000
+                                lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+                                # Kill any npm/node processes that might be hanging
+                                pkill -f "npm run start" 2>/dev/null || true
+                                pkill -f "next start" 2>/dev/null || true
+                                sleep 1
+                            '''
+                        } catch (Exception e) {
+                            echo "Warning: Error during cleanup: ${e.message}"
+                            // Don't fail the stage due to cleanup errors
+                        }
+                        
+                        try {
+                            // Publish JUnit test results
+                            junit(
+                                testResults: 'test-results/e2e/**/*.xml',
+                                allowEmptyResults: true
+                            )
+                        } catch (Exception e) {
+                            echo "Error publishing JUnit results: ${e.message}"
+                            // Send email notification for JUnit publishing error
+                            mail (
+                                to: "groklord2@gmail.com",
+                                subject: "⚠️ E2E Tests: JUnit Publishing Error - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                                body: """
+E2E Tests Stage - JUnit Publishing Error ⚠️
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: WARNING
+
+Error: Failed to publish JUnit test results
+Details: ${e.message}
+
+View Build: ${env.BUILD_URL}console
+                                """
+                            )
+                        }
+                        
                         try {
                             if (fileExists('playwright-report/index.html')) {
                                 publishHTML([
@@ -544,10 +847,61 @@ View Build: ${env.BUILD_URL}console
                         } catch (Exception e) {
                             echo "HTML Publisher plugin not available: ${e.message}"
                             echo "Playwright report available at: playwright-report/index.html"
+                            // Send email notification for HTML publishing error
+                            mail (
+                                to: "groklord2@gmail.com",
+                                subject: "⚠️ E2E Tests: HTML Report Publishing Error - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                                body: """
+E2E Tests Stage - HTML Report Publishing Error ⚠️
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: WARNING
+
+Error: Failed to publish HTML test report
+Details: ${e.message}
+
+View Build: ${env.BUILD_URL}console
+                                """
+                            )
+                        }
+                        
+                        try {
+                            // Archive screenshots and videos from failed tests
+                            archiveArtifacts artifacts: 'test-results/**/*', allowEmptyArchive: true
+                        } catch (Exception e) {
+                            echo "Error archiving test results: ${e.message}"
+                            mail (
+                                to: "groklord2@gmail.com",
+                                subject: "⚠️ E2E Tests: Artifact Archiving Error - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                                body: """
+E2E Tests Stage - Artifact Archiving Error ⚠️
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: WARNING
+
+Error: Failed to archive test artifacts
+Details: ${e.message}
+
+View Build: ${env.BUILD_URL}console
+                                """
+                            )
+                        }
+                        
+                        try {
+                            // Archive server logs if they exist
+                            if (fileExists('/tmp/server-start.log')) {
+                                sh 'cp /tmp/server-start.log server-startup.log 2>/dev/null || true'
+                                archiveArtifacts artifacts: 'server-startup.log', allowEmptyArchive: true
+                            }
+                        } catch (Exception e) {
+                            echo "Error archiving server logs: ${e.message}"
+                            // Non-critical, don't send email for this
                         }
                     }
-                    // Archive screenshots and videos from failed tests
-                    archiveArtifacts artifacts: 'test-results/**/*', allowEmptyArchive: true
                 }
                 success {
                     echo 'E2E Tests stage completed successfully'
@@ -562,6 +916,8 @@ Build Number: ${env.BUILD_NUMBER}
 Branch: ${env.GIT_BRANCH_NAME}
 Status: SUCCESS
 
+Frontend server started successfully and all E2E tests passed.
+
 View Build: ${env.BUILD_URL}
 View Test Results: ${env.BUILD_URL}testReport
                         """
@@ -569,21 +925,47 @@ View Test Results: ${env.BUILD_URL}testReport
                 }
                 failure {
                     echo 'E2E Tests stage failed'
-                    mail (
-                        to: "groklord2@gmail.com",
-                        subject: "✗ Stage: E2E Tests Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                        body: """
+                    script {
+                        // Get additional error context
+                        def errorContext = ""
+                        try {
+                            if (fileExists('/tmp/server-start.log')) {
+                                def serverLog = sh(
+                                    script: 'tail -100 /tmp/server-start.log 2>/dev/null || echo "No server log available"',
+                                    returnStdout: true
+                                )
+                                errorContext = "\n\nServer Startup Log (last 100 lines):\n${serverLog}"
+                            }
+                        } catch (Exception e) {
+                            errorContext = "\n\nCould not retrieve server logs: ${e.message}"
+                        }
+                        
+                        mail (
+                            to: "groklord2@gmail.com",
+                            subject: "✗ Stage: E2E Tests Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                            body: """
 Stage: E2E Tests ❌
 
 Job: ${env.JOB_NAME}
 Build Number: ${env.BUILD_NUMBER}
 Branch: ${env.GIT_BRANCH_NAME}
+Commit: ${env.GIT_COMMIT_SHORT}
 Status: FAILED
+
+Possible causes:
+- Frontend server failed to start (timeout or crash)
+- Database connection issues
+- Test execution errors
+- Port conflicts
+
+${errorContext}
 
 View Build: ${env.BUILD_URL}console
 View Test Results: ${env.BUILD_URL}testReport
-                        """
-                    )
+Check Logs: ${env.BUILD_URL}consoleText
+                            """
+                        )
+                    }
                 }
             }
         }
