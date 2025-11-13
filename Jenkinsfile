@@ -5,6 +5,10 @@ pipeline {
         NODE_VERSION = '20'
         CI = 'true'
         NODE_ENV = 'test'
+        // SonarQube configuration
+        // SONAR_HOST_URL can be set in Jenkins environment variables or credentials
+        // SONAR_TOKEN should be configured as a Jenkins credential with ID 'sonar-token'
+        SONAR_HOST_URL = "${SONAR_HOST_URL ?: 'http://localhost:9000'}"
     }
     
     options {
@@ -400,6 +404,182 @@ Branch: ${env.GIT_BRANCH_NAME}
 Status: FAILED
 
 View Build: ${env.BUILD_URL}console
+                        """
+                    )
+                }
+            }
+        }
+        
+        stage('SonarQube Analysis') {
+            steps {
+                echo 'Running SonarQube code analysis...'
+                script {
+                    try {
+                        // Check if SonarQube scanner is available
+                        def sonarScannerAvailable = sh(
+                            script: 'command -v sonar-scanner &> /dev/null && echo "yes" || echo "no"',
+                            returnStdout: true
+                        ).trim() == 'yes'
+                        
+                        // Ensure coverage report exists (required for SonarQube)
+                        echo 'Checking for coverage report...'
+                        def coverageExists = fileExists('coverage/lcov.info')
+                        if (!coverageExists) {
+                            echo 'WARNING: Coverage report not found. Running tests with coverage...'
+                            sh 'npm run test:coverage || true'
+                        }
+                        
+                        // Check if JUnit test results exist (optional)
+                        def junitExists = fileExists('test-results/jest/junit.xml')
+                        if (!junitExists) {
+                            echo 'INFO: JUnit test results not found. Analysis will run without test execution data.'
+                            // Comment out test execution report path in sonar-project.properties
+                            sh '''
+                                sed -i 's/^sonar.testExecutionReportPaths=/#sonar.testExecutionReportPaths=/' sonar-project.properties || true
+                            '''
+                        } else {
+                            echo '✓ JUnit test results found'
+                            // Ensure test execution report path is enabled
+                            sh '''
+                                if ! grep -q "^sonar.testExecutionReportPaths" sonar-project.properties; then
+                                    sed -i '/# Test execution reports/a sonar.testExecutionReportPaths=test-results/jest/junit.xml' sonar-project.properties
+                                fi
+                            '''
+                        }
+                        
+                        // Check if credentials are available (required for authentication)
+                        def hasCredentials = false
+                        try {
+                            // Try to access the credential to see if it exists
+                            withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN_TEST')]) {
+                                hasCredentials = true
+                            }
+                        } catch (Exception credEx) {
+                            echo "WARNING: SonarQube token credential not found."
+                            echo "To enable SonarQube analysis, create a Jenkins credential with ID 'sonar-token'"
+                            echo "Analysis will be skipped."
+                            hasCredentials = false
+                        }
+                        
+                        if (!hasCredentials) {
+                            echo "SKIPPING: SonarQube analysis - token credential not configured"
+                            echo "To enable: Create Jenkins credential 'sonar-token' with your SonarQube token"
+                            return
+                        }
+                        
+                        // Run SonarQube analysis with authentication using token (not login/password)
+                        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                            if (!sonarScannerAvailable) {
+                                // Use npx sonar-scanner
+                                echo 'Using npx sonarqube-scanner...'
+                                sh '''
+                                    # Run SonarQube analysis using npx
+                                    npx sonarqube-scanner \
+                                        -Dsonar.host.url="${SONAR_HOST_URL}" \
+                                        -Dsonar.token="${SONAR_TOKEN}"
+                                '''
+                            } else {
+                                // Use installed sonar-scanner
+                                echo 'Using installed sonar-scanner...'
+                                sh '''
+                                    sonar-scanner \
+                                        -Dsonar.host.url="${SONAR_HOST_URL}" \
+                                        -Dsonar.token="${SONAR_TOKEN}"
+                                '''
+                            }
+                        }
+                        
+                        echo '✓ SonarQube analysis completed successfully'
+                    } catch (Exception e) {
+                        def errorMessage = e.getMessage()
+                        echo "ERROR during SonarQube analysis: ${errorMessage}"
+                        
+                        // Check if it's a credentials issue
+                        if (errorMessage.contains('credentials') || errorMessage.contains('SONAR_TOKEN')) {
+                            echo "WARNING: SonarQube token not configured. Skipping analysis."
+                            echo "To enable SonarQube analysis:"
+                            echo "  1. Create a Jenkins credential with ID 'sonar-token'"
+                            echo "  2. Set SONAR_HOST_URL environment variable in Jenkins"
+                            echo "  3. Ensure SonarQube server is accessible"
+                        }
+                        
+                        // Send email notification for SonarQube failure
+                        mail (
+                            to: "groklord2@gmail.com",
+                            subject: "⚠️ SonarQube Analysis Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                            body: """
+SonarQube Analysis Stage - Analysis Failed ⚠️
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Commit: ${env.GIT_COMMIT_SHORT}
+Status: ANALYSIS FAILED
+
+Error Details:
+${errorMessage}
+
+Possible Causes:
+- SonarQube server not accessible
+- SonarQube scanner not installed
+- Invalid SonarQube configuration
+- Network connectivity issues
+- Authentication problems
+- Missing Jenkins credential 'sonar-token'
+
+Setup Instructions:
+1. Create Jenkins credential with ID 'sonar-token' containing your SonarQube token
+2. Set SONAR_HOST_URL environment variable (default: http://localhost:9000)
+3. Ensure SonarQube server is running and accessible
+4. Install SonarQube scanner on Jenkins agent
+
+View Build: ${env.BUILD_URL}console
+Check Logs: ${env.BUILD_URL}consoleText
+
+Note: This is a warning, not a critical failure. The pipeline will continue.
+                            """
+                        )
+                        // Don't fail the pipeline, just warn
+                        echo "WARNING: SonarQube analysis failed, but continuing pipeline..."
+                    }
+                }
+            }
+            post {
+                success {
+                    echo 'SonarQube analysis stage completed successfully'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✓ Stage: SonarQube Analysis - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: SonarQube Analysis ✅
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: SUCCESS
+
+Code quality analysis completed successfully.
+
+View Build: ${env.BUILD_URL}
+View SonarQube Dashboard: Check your SonarQube server for detailed results
+                        """
+                    )
+                }
+                failure {
+                    echo 'SonarQube analysis stage failed'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✗ Stage: SonarQube Analysis Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: SonarQube Analysis ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: FAILED
+
+View Build: ${env.BUILD_URL}console
+Check Logs: ${env.BUILD_URL}consoleText
                         """
                     )
                 }
