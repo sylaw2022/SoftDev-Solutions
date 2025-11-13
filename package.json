@@ -17,7 +17,11 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:coverage": "jest --coverage",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "ngrok": "ngrok http 3000",
+    "db:read": "node scripts/read-users.js",
+    "db:read:recent": "node scripts/read-users.js --recent",
+    "db:read:json": "node scripts/read-users.js --format json"
   },
   "dependencies": {
     "@types/nodemailer": "^7.0.1",
