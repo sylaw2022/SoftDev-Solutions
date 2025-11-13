@@ -165,12 +165,43 @@ pipeline {
         
         stage('E2E Tests') {
             steps {
-                echo 'Setting up SQLite database for E2E tests...'
+                echo 'Setting up PostgreSQL database for E2E tests...'
                 script {
-                    // SQLite doesn't require a separate database server
-                    // Database file will be created automatically in data/ directory
-                    echo '✓ SQLite database will be created automatically during tests'
-                    echo '✓ No database server setup required'
+                    // Check if PostgreSQL is available
+                    def pgAvailable = sh(
+                        script: 'command -v psql &> /dev/null && echo "yes" || echo "no"',
+                        returnStdout: true
+                    ).trim() == 'yes'
+                    
+                    if (!pgAvailable) {
+                        echo 'WARNING: PostgreSQL client (psql) not found. Attempting to use local PostgreSQL...'
+                    }
+                    
+                    // Test PostgreSQL connection
+                    echo 'Testing PostgreSQL connection...'
+                    def connectionTest = sh(
+                        script: '''
+                            PGPASSWORD=Sylaw1970 psql -h localhost -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1 && echo "connected" || echo "not_connected"
+                        ''',
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (connectionTest != 'connected') {
+                        echo 'WARNING: Cannot connect to local PostgreSQL database'
+                        echo 'Please ensure PostgreSQL is running with:'
+                        echo '  - Database: postgres'
+                        echo '  - User: postgres'
+                        echo '  - Password: Sylaw1970'
+                        echo '  - Host: localhost'
+                        echo '  - Port: 5432'
+                    } else {
+                        echo '✓ PostgreSQL connection verified'
+                    }
+                    
+                    // Set DATABASE_URL for E2E tests
+                    // Note: Port may be 5432 or 5433 depending on PostgreSQL installation
+                    env.DATABASE_URL = 'postgresql://postgres:Sylaw1970@localhost:5433/postgres'
+                    echo "DATABASE_URL set to: ${env.DATABASE_URL}"
                 }
                 
                 echo 'Installing Playwright browsers...'
@@ -196,19 +227,22 @@ pipeline {
                 
                 echo 'Running end-to-end tests...'
                 script {
-                    echo "Running E2E tests with SQLite database..."
-                    echo "SQLite database will be created in data/ directory automatically"
+                    echo "Running E2E tests with PostgreSQL database..."
+                    echo "Database: postgres"
+                    echo "User: postgres"
+                    echo "Host: localhost:5432"
                     
                     sh '''
                         # Playwright will automatically start the server using webServer config
                         # Set base URL for tests
                         export PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
                         
-                        # Ensure data directory exists for SQLite database
-                        mkdir -p data
+                        # Export DATABASE_URL for the application
+                        export DATABASE_URL="${DATABASE_URL}"
+                        echo "DATABASE_URL exported: ${DATABASE_URL}"
                         
                         # Run E2E tests (Playwright handles server lifecycle)
-                        # SQLite database will be created automatically on first use
+                        # DATABASE_URL will be available to the webServer process
                         npm run test:e2e
                     '''
                 }

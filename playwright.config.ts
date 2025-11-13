@@ -65,14 +65,18 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'npm run start',
+    // Use dev server for local testing, production server for CI
+    command: process.env.CI ? 'npm run start' : 'npm run dev',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
     stdout: 'pipe',
     stderr: 'pipe',
     env: {
-      // SQLite database will be created automatically in data/ directory
+      // PostgreSQL database connection for E2E tests
+      // Default to local PostgreSQL: postgres:Sylaw1970@localhost:5433/postgres
+      // Note: Port may be 5432 or 5433 depending on PostgreSQL installation
+      DATABASE_URL: process.env.DATABASE_URL || 'postgresql://postgres:Sylaw1970@localhost:5433/postgres',
       NODE_ENV: process.env.NODE_ENV || 'test',
     },
   },
