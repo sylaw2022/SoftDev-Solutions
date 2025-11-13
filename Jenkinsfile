@@ -272,12 +272,11 @@ pipeline {
                 }
             }
             // Send success email notification
-            script {
-                try {
-                    mail (
-                        to: "groklord2@gmail.com",
-                        subject: "✅ Build Success: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                        body: """
+            echo 'Sending success email notification...'
+            mail (
+                to: "groklord2@gmail.com",
+                subject: "✅ Build Success: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
 Build Successful! ✅
 
 Job: ${env.JOB_NAME}
@@ -299,12 +298,9 @@ Build Stages Completed:
 
 View Build Details: ${env.BUILD_URL}
 View Console Output: ${env.BUILD_URL}console
-                        """
-                    )
-                } catch (Exception e) {
-                    echo "Email notification failed: ${e.message}"
-                }
-            }
+                """
+            )
+            echo 'Success email notification sent'
         }
         failure {
             echo 'Pipeline failed! ❌'
@@ -315,12 +311,11 @@ View Console Output: ${env.BUILD_URL}console
             echo "  - Job: ${env.JOB_NAME}"
             echo "  - Build Number: ${env.BUILD_NUMBER}"
             // Send failure email notification
-            script {
-                try {
-                    mail (
-                        to: "groklord2@gmail.com",
-                        subject: "❌ Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                        body: """
+            echo 'Sending failure email notification...'
+            mail (
+                to: "groklord2@gmail.com",
+                subject: "❌ Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
 Build Failed! ❌
 
 Job: ${env.JOB_NAME}
@@ -336,22 +331,18 @@ Check console output for detailed error information.
 View Build Details: ${env.BUILD_URL}
 View Console Output: ${env.BUILD_URL}console
 View Test Results: ${env.BUILD_URL}testReport
-                        """
-                    )
-                } catch (Exception e) {
-                    echo "Email notification failed: ${e.message}"
-                }
-            }
+                """
+            )
+            echo 'Failure email notification sent'
         }
         unstable {
             echo 'Pipeline is unstable ⚠️'
             // Send unstable email notification
-            script {
-                try {
-                    mail (
-                        to: "groklord2@gmail.com",
-                        subject: "⚠️ Build Unstable: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                        body: """
+            echo 'Sending unstable email notification...'
+            mail (
+                to: "groklord2@gmail.com",
+                subject: "⚠️ Build Unstable: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
 Build Unstable ⚠️
 
 Job: ${env.JOB_NAME}
@@ -365,12 +356,9 @@ Build completed but some tests failed or warnings were generated.
 
 View Build Details: ${env.BUILD_URL}
 View Test Results: ${env.BUILD_URL}testReport
-                        """
-                    )
-                } catch (Exception e) {
-                    echo "Email notification failed: ${e.message}"
-                }
-            }
+                """
+            )
+            echo 'Unstable email notification sent'
         }
     }
 }
