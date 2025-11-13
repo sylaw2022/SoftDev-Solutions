@@ -30,6 +30,43 @@ pipeline {
                 }
                 echo "Building commit: ${env.GIT_COMMIT_SHORT} on branch: ${env.GIT_BRANCH_NAME}"
             }
+            post {
+                success {
+                    echo 'Checkout stage completed successfully'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✓ Stage: Checkout - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Checkout ✅
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Commit: ${env.GIT_COMMIT_SHORT}
+Status: SUCCESS
+
+View Build: ${env.BUILD_URL}
+                        """
+                    )
+                }
+                failure {
+                    echo 'Checkout stage failed'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✗ Stage: Checkout Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Checkout ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: FAILED
+
+View Build: ${env.BUILD_URL}console
+                        """
+                    )
+                }
+            }
         }
         
         stage('Setup Node.js') {
@@ -60,6 +97,42 @@ pipeline {
                     fi
                 '''
             }
+            post {
+                success {
+                    echo 'Setup Node.js stage completed successfully'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✓ Stage: Setup Node.js - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Setup Node.js ✅
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: SUCCESS
+
+View Build: ${env.BUILD_URL}
+                        """
+                    )
+                }
+                failure {
+                    echo 'Setup Node.js stage failed'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✗ Stage: Setup Node.js Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Setup Node.js ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: FAILED
+
+View Build: ${env.BUILD_URL}console
+                        """
+                    )
+                }
+            }
         }
         
         stage('Install Dependencies') {
@@ -68,6 +141,42 @@ pipeline {
                 sh '''
                     npm ci --prefer-offline --no-audit
                 '''
+            }
+            post {
+                success {
+                    echo 'Install Dependencies stage completed successfully'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✓ Stage: Install Dependencies - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Install Dependencies ✅
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: SUCCESS
+
+View Build: ${env.BUILD_URL}
+                        """
+                    )
+                }
+                failure {
+                    echo 'Install Dependencies stage failed'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✗ Stage: Install Dependencies Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Install Dependencies ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: FAILED
+
+View Build: ${env.BUILD_URL}console
+                        """
+                    )
+                }
             }
         }
         
@@ -96,6 +205,40 @@ pipeline {
                         }
                     }
                 }
+                success {
+                    echo 'Lint stage completed successfully'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✓ Stage: Lint - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Lint ✅
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: SUCCESS
+
+View Build: ${env.BUILD_URL}
+                        """
+                    )
+                }
+                failure {
+                    echo 'Lint stage failed'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✗ Stage: Lint Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Lint ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: FAILED
+
+View Build: ${env.BUILD_URL}console
+                        """
+                    )
+                }
             }
         }
         
@@ -108,6 +251,42 @@ pipeline {
                         exit 1
                     }
                 '''
+            }
+            post {
+                success {
+                    echo 'Type Check stage completed successfully'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✓ Stage: Type Check - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Type Check ✅
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: SUCCESS
+
+View Build: ${env.BUILD_URL}
+                        """
+                    )
+                }
+                failure {
+                    echo 'Type Check stage failed'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✗ Stage: Type Check Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Type Check ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: FAILED
+
+View Build: ${env.BUILD_URL}console
+                        """
+                    )
+                }
             }
         }
         
@@ -142,6 +321,42 @@ pipeline {
                         }
                     }
                 }
+                success {
+                    echo 'Unit Tests stage completed successfully'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✓ Stage: Unit Tests - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Unit Tests ✅
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: SUCCESS
+
+View Build: ${env.BUILD_URL}
+View Test Results: ${env.BUILD_URL}testReport
+                        """
+                    )
+                }
+                failure {
+                    echo 'Unit Tests stage failed'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✗ Stage: Unit Tests Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Unit Tests ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: FAILED
+
+View Build: ${env.BUILD_URL}console
+View Test Results: ${env.BUILD_URL}testReport
+                        """
+                    )
+                }
             }
         }
         
@@ -156,9 +371,37 @@ pipeline {
                 success {
                     echo 'Build completed successfully'
                     archiveArtifacts artifacts: '.next/**/*', allowEmptyArchive: true
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✓ Stage: Build - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Build ✅
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: SUCCESS
+
+View Build: ${env.BUILD_URL}
+                        """
+                    )
                 }
                 failure {
                     echo 'Build failed'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✗ Stage: Build Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Build ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: FAILED
+
+View Build: ${env.BUILD_URL}console
+                        """
+                    )
                 }
             }
         }
@@ -272,6 +515,42 @@ pipeline {
                     // Archive screenshots and videos from failed tests
                     archiveArtifacts artifacts: 'test-results/**/*', allowEmptyArchive: true
                 }
+                success {
+                    echo 'E2E Tests stage completed successfully'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✓ Stage: E2E Tests - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: E2E Tests ✅
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: SUCCESS
+
+View Build: ${env.BUILD_URL}
+View Test Results: ${env.BUILD_URL}testReport
+                        """
+                    )
+                }
+                failure {
+                    echo 'E2E Tests stage failed'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✗ Stage: E2E Tests Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: E2E Tests ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: FAILED
+
+View Build: ${env.BUILD_URL}console
+View Test Results: ${env.BUILD_URL}testReport
+                        """
+                    )
+                }
             }
         }
         
@@ -281,6 +560,42 @@ pipeline {
                 sh '''
                     npm audit --audit-level=moderate || true
                 '''
+            }
+            post {
+                success {
+                    echo 'Security Scan stage completed successfully'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✓ Stage: Security Scan - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Security Scan ✅
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: SUCCESS
+
+View Build: ${env.BUILD_URL}
+                        """
+                    )
+                }
+                failure {
+                    echo 'Security Scan stage failed'
+                    mail (
+                        to: "groklord2@gmail.com",
+                        subject: "✗ Stage: Security Scan Failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                        body: """
+Stage: Security Scan ❌
+
+Job: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Branch: ${env.GIT_BRANCH_NAME}
+Status: FAILED
+
+View Build: ${env.BUILD_URL}console
+                        """
+                    )
+                }
             }
         }
     }
