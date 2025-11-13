@@ -469,23 +469,36 @@ View Build: ${env.BUILD_URL}console
                         
                         // Run SonarQube analysis with authentication using token (not login/password)
                         withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                            if (!sonarScannerAvailable) {
-                                // Use npx sonar-scanner
-                                echo 'Using npx sonarqube-scanner...'
+                            // Always use npx sonarqube-scanner first (more reliable, doesn't require system installation)
+                            // Fall back to installed sonar-scanner only if npx fails
+                            def useNpx = true
+                            try {
+                                echo 'Using npx sonarqube-scanner (recommended)...'
                                 sh '''
-                                    # Run SonarQube analysis using npx
-                                    npx sonarqube-scanner \
+                                    # Run SonarQube analysis using npx (most reliable method)
+                                    npx --yes sonarqube-scanner \
                                         -Dsonar.host.url="${SONAR_HOST_URL}" \
                                         -Dsonar.token="${SONAR_TOKEN}"
                                 '''
-                            } else {
-                                // Use installed sonar-scanner
-                                echo 'Using installed sonar-scanner...'
-                                sh '''
-                                    sonar-scanner \
-                                        -Dsonar.host.url="${SONAR_HOST_URL}" \
-                                        -Dsonar.token="${SONAR_TOKEN}"
-                                '''
+                                useNpx = false // Success, don't try fallback
+                            } catch (Exception npxError) {
+                                echo "npx sonarqube-scanner failed: ${npxError.message}"
+                                if (sonarScannerAvailable) {
+                                    echo 'Falling back to installed sonar-scanner...'
+                                    try {
+                                        sh '''
+                                            sonar-scanner \
+                                                -Dsonar.host.url="${SONAR_HOST_URL}" \
+                                                -Dsonar.token="${SONAR_TOKEN}"
+                                        '''
+                                        useNpx = false // Success with fallback
+                                    } catch (Exception scannerError) {
+                                        echo "Installed sonar-scanner also failed: ${scannerError.message}"
+                                        throw new Exception("Both npx and installed sonar-scanner failed. npx error: ${npxError.message}, scanner error: ${scannerError.message}")
+                                    }
+                                } else {
+                                    throw new Exception("npx sonarqube-scanner failed and no installed scanner available: ${npxError.message}")
+                                }
                             }
                         }
                         
