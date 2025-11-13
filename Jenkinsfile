@@ -473,19 +473,53 @@ View Build: ${env.BUILD_URL}console
                     echo "Running E2E tests with PostgreSQL database..."
                     echo "Database: postgres"
                     echo "User: postgres"
-                    echo "Host: localhost:5432"
+                    echo "Host: localhost:5433"
+                    
+                    // Verify build exists before running E2E tests
+                    echo 'Verifying build artifacts exist...'
+                    def buildExists = fileExists('.next/BUILD_ID')
+                    if (!buildExists) {
+                        error('Build artifacts not found! Please ensure Build stage completed successfully.')
+                    }
+                    echo '✓ Build artifacts verified'
+                    
+                    // Check if port 3000 is available
+                    echo 'Checking if port 3000 is available...'
+                    sh '''
+                        # Kill any process using port 3000
+                        lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+                        sleep 2
+                        echo "Port 3000 is available"
+                    '''
                     
                     sh '''
-                        # Playwright will automatically start the server using webServer config
+                        # Set CI environment variable for Playwright
+                        export CI=true
+                        export NODE_ENV=test
+                        
                         # Set base URL for tests
                         export PLAYWRIGHT_TEST_BASE_URL=http://localhost:3000
                         
                         # Export DATABASE_URL for the application
                         export DATABASE_URL="${DATABASE_URL}"
-                        echo "DATABASE_URL exported: ${DATABASE_URL}"
+                        echo "Environment variables set:"
+                        echo "  CI=${CI}"
+                        echo "  NODE_ENV=${NODE_ENV}"
+                        echo "  DATABASE_URL=${DATABASE_URL}"
+                        echo "  PLAYWRIGHT_TEST_BASE_URL=${PLAYWRIGHT_TEST_BASE_URL}"
+                        
+                        # Verify .next directory exists
+                        if [ ! -d ".next" ]; then
+                            echo "ERROR: .next directory not found!"
+                            echo "Build must complete before E2E tests can run."
+                            exit 1
+                        fi
+                        
+                        echo "✓ Build directory verified"
                         
                         # Run E2E tests (Playwright handles server lifecycle)
-                        # DATABASE_URL will be available to the webServer process
+                        # Playwright will start the server using npm run start
+                        # DATABASE_URL will be available to the webServer process via playwright.config.ts
                         npm run test:e2e
                     '''
                 }

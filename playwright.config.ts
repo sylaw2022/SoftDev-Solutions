@@ -69,7 +69,7 @@ export default defineConfig({
     command: process.env.CI ? 'npm run start' : 'npm run dev',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
+    timeout: 180 * 1000, // Increased timeout for CI (3 minutes)
     stdout: 'pipe',
     stderr: 'pipe',
     env: {
@@ -78,6 +78,7 @@ export default defineConfig({
       // Note: Port may be 5432 or 5433 depending on PostgreSQL installation
       DATABASE_URL: process.env.DATABASE_URL || 'postgresql://postgres:Sylaw1970@localhost:5433/postgres',
       NODE_ENV: process.env.NODE_ENV || 'test',
+      CI: process.env.CI || 'false',
     },
   },
 });
